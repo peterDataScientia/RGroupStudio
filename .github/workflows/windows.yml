@@ -20,6 +20,25 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt pyinstaller
+      - name: Prepare approved RGroupStudio icons
+        shell: pwsh
+        run: |
+          @'
+          from pathlib import Path
+          from base64 import b64decode
+          from PIL import Image
+          folder = Path("assets")
+          data = b64decode((folder / "approved_logo.png.base64").read_text(encoding="utf-8").strip(), validate=True)
+          png = folder / "approved_logo.png"
+          png.write_bytes(data)
+          with Image.open(png) as im:
+              im.verify()
+          with Image.open(png) as im:
+              image = im.convert("RGBA")
+              assert image.size == (256,256), image.size
+              image.save(folder / "RGroupStudio.ico", format="ICO", sizes=[(16,16),(24,24),(32,32),(48,48),(64,64),(128,128),(256,256)])
+          assert (folder / "RGroupStudio.ico").stat().st_size > 0
+          '@ | python -
       - name: Test chemistry and imports
         shell: pwsh
         run: |
@@ -28,8 +47,12 @@ jobs:
       - name: Build desktop EXE
         shell: pwsh
         run: |
-          python -m PyInstaller --noconfirm --clean --onedir --windowed --name RGroupStudio --collect-all rdkit --collect-all matplotlib --collect-all PIL --hidden-import PIL._tkinter_finder app.py
+          python -m PyInstaller --noconfirm --clean --onedir --windowed --name RGroupStudio --icon assets/RGroupStudio.ico --add-data "assets/approved_logo.png;assets" --collect-all rdkit --collect-all matplotlib --collect-all PIL --hidden-import PIL._tkinter_finder app.py
           if (!(Test-Path dist/RGroupStudio/RGroupStudio.exe)) { throw "Missing EXE" }
+      - name: Validate bundled icon asset
+        shell: pwsh
+        run: |
+          if (!(Test-Path dist/RGroupStudio/_internal/assets/approved_logo.png)) { throw "Missing embedded application icon image" }
       - name: Validate bundled EXE
         shell: pwsh
         run: |
@@ -54,7 +77,7 @@ jobs:
       - name: Validate actual Windows installer installation
         shell: pwsh
         run: |
-          $installer = "release/RGroupStudio_Setup_v0.2.2_Windows_x64.exe"
+          $installer = "release/RGroupStudio_Setup_v0.2.3_Windows_x64.exe"
           if (!(Test-Path $installer)) { throw "Installer not generated" }
           $proc = Start-Process -FilePath (Resolve-Path $installer) -ArgumentList @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CURRENTUSER") -Wait -PassThru
           if ($proc.ExitCode -ne 0) { throw "Silent install failed: $($proc.ExitCode)" }
@@ -79,21 +102,22 @@ jobs:
           name: RGroupStudio-Windows
           path: release/*
           if-no-files-found: error
-      - name: Publish official GitHub Release v0.2.2
+      - name: Publish official GitHub Release v0.2.3
         if: github.ref == 'refs/heads/main'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tag = "v0.2.2"
-          $installer = "release/RGroupStudio_Setup_v0.2.2_Windows_x64.exe"
+          $tag = "v0.2.3"
+          $installer = "release/RGroupStudio_Setup_v0.2.3_Windows_x64.exe"
           $portable = "release/RGroupStudio_Portable_Windows_x64.zip"
+          $logo = "assets/approved_logo.png"
           if (!(Test-Path $installer)) { throw "Installer missing: $installer" }
           if (!(Test-Path $portable)) { throw "Portable package missing: $portable" }
           gh release view $tag --repo ${{ github.repository }} *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag $installer $portable --repo ${{ github.repository }} --target $env:GITHUB_SHA --title "RGroupStudio v0.2.2 — Windows Official Release" --notes "Windows x64 desktop R-group enumeration application. Download the Setup EXE for one-time installation; Python is not required. Includes a portable ZIP. Build validated with chemistry tests, bundled EXE self-test, and GUI startup check." --latest
+            gh release create $tag $installer $portable $logo --repo ${{ github.repository }} --target $env:GITHUB_SHA --title "RGroupStudio v0.2.3 — Windows Official Release" --notes "Windows x64 desktop R-group enumeration application. Download the Setup EXE for one-time installation; Python is not required. Includes a portable ZIP. Build validated with chemistry tests, bundled EXE self-test, and GUI startup check." --latest
           } else {
-            gh release upload $tag $installer $portable --repo ${{ github.repository }} --clobber
+            gh release upload $tag $installer $portable $logo --repo ${{ github.repository }} --clobber
           }
           if ($LASTEXITCODE -ne 0) { throw "GitHub release publication failed" }
