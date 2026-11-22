@@ -3,10 +3,14 @@ import os
 import sys
 import logging
 import traceback
+import queue
+import threading
+import subprocess
 from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog, simpledialog
 from PIL import ImageTk
+from updater import APP_VERSION, latest_update, download_installer, get_auto_check, set_auto_check
 from rdkit import Chem
 from rdkit.Chem import Draw
 from chemistry import FRAGMENTS, parse_scaffold, sites, validate_fragment, load_fragments, enumerate_library, molecular_properties, export_sdf, export_smi, export_csv, conformer_3d
@@ -20,7 +24,7 @@ logging.basicConfig(filename=LOGFILE, level=logging.INFO,
 class Studio(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("RGroupStudio | Molecular Library Designer")
+        self.title(f"RGroupStudio v{APP_VERSION} | Molecular Library Designer")
         try:
             asset_root = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
             self.logo_image = tk.PhotoImage(file=str(asset_root / "assets" / "approved_logo.png"))
@@ -44,8 +48,14 @@ class Studio(tk.Tk):
         self.export_selection_only = tk.BooleanVar(value=False)
         self.current_fragments = {}
         self.status = tk.StringVar(value="Ready")
+        self.auto_check_updates = tk.BooleanVar(value=get_auto_check())
+        self.update_events = queue.Queue()
+        self.update_busy = False
+        self._update_info = None
         self._build()
         self.refresh_scaffold()
+        if self.auto_check_updates.get() and not os.getenv("RGROUPSTUDIO_DISABLE_AUTO_CHECK"):
+            self.after(2200, lambda: self.check_for_updates(silent=True))
 
     def _build(self):
         # CLAM allows consistent, high-contrast palette on Windows.
@@ -108,6 +118,20 @@ class Studio(tk.Tk):
                  fg="white", bg="#17365d", padx=13).pack(side="left", fill="y")
         tk.Label(header, text="Molecular Library Designer", font=("Segoe UI", 9),
                  fg="#d9e7f8", bg="#17365d").pack(side="left")
+        self.check_update_button = tk.Button(
+            header, text="Check for Updates", command=self.check_for_updates,
+            font=("Segoe UI", 9, "bold"), fg="#FFFFFF", bg="#0759A7",
+            activebackground="#1274C5", activeforeground="#FFFFFF",
+            relief="flat", cursor="hand2", padx=11, pady=4)
+        self.check_update_button.pack(side="right", padx=(8, 10), pady=6)
+        tk.Checkbutton(
+            header, text="Auto-check at startup", variable=self.auto_check_updates,
+            command=self._set_auto_update_preference, bg="#17365d",
+            fg="#FFFFFF", activebackground="#17365d", activeforeground="#FFFFFF",
+            selectcolor="#17365d", font=("Segoe UI", 9, "bold")
+        ).pack(side="right", padx=(0, 6))
+        tk.Label(header, text="v" + APP_VERSION, fg="#F0F6FF",
+                 bg="#17365d", font=("Segoe UI", 9, "bold")).pack(side="right", padx=(0, 8))
         main = ttk.PanedWindow(self, orient=tk.HORIZONTAL)
         main.pack(fill="both", expand=True, padx=9, pady=7)
         # The complete editor (including assignments) is scrollable.
@@ -236,6 +260,110 @@ class Studio(tk.Tk):
         ttk.Button(actions, text="View 3D", command=self.view3d).pack(side="left", padx=4)
         tk.Label(self, textvariable=self.status, bg="#e2eaf4", fg="#10243B",
                  anchor="w", padx=9, pady=3, font=("Segoe UI", 9)).pack(fill="x")
+
+    def _set_auto_update_preference(self):
+        try:
+            set_auto_check(self.auto_check_updates.get())
+            self.status.set("Automatic update checks " +
+                            ("enabled" if self.auto_check_updates.get() else "disabled"))
+        except Exception as exc:
+            self.error("Update preference failed", exc)
+
+    def check_for_updates(self, silent=False):
+        """Check without freezing the Tk interface; show no dialog if already current."""
+        if self.update_busy:
+            if not silent:
+                self.status.set("An update operation is already running.")
+            return
+        self.update_busy = True
+        self.check_update_button.configure(state="disabled")
+        self.status.set("Checking GitHub Releases for updates...")
+        def worker():
+            try:
+                self.update_events.put(("check", silent, latest_update()))
+            except Exception as exc:
+                self.update_events.put(("check_error", silent, str(exc)))
+        threading.Thread(target=worker, daemon=True).start()
+        self.after(120, self._poll_updates)
+
+    def _poll_updates(self):
+        try:
+            kind, *payload = self.update_events.get_nowait()
+        except queue.Empty:
+            if self.update_busy:
+                self.after(120, self._poll_updates)
+            return
+        if kind == "check":
+            silent, info = payload
+            if info is None:
+                self.status.set(f"RGroupStudio v{APP_VERSION} is up to date.")
+                if not silent:
+                    messagebox.showinfo("No updates", f"You have the latest version: v{APP_VERSION}.", parent=self)
+                self._update_finished()
+            else:
+                self._update_info = info
+                self.status.set("RGroupStudio v" + info["version"] + " is available.")
+                self._update_finished()
+                if messagebox.askyesno("RGroupStudio Update Available",
+                        "Installed: v" + APP_VERSION + "\nAvailable: v" + info["version"] +
+                        "\n\nDownload the verified installer and update now?\n"
+                        "Your app will close when installation starts.", parent=self):
+                    self._download_update(info)
+        elif kind == "check_error":
+            silent, message = payload
+            self.status.set("Update check unavailable: " + message)
+            self._update_finished()
+            if not silent:
+                messagebox.showwarning("Update check failed", message +
+                                       "\n\nCheck your internet connection and try again.", parent=self)
+        elif kind == "progress":
+            received, total = payload
+            self.status.set("Downloading verified update: %d%%" % (100 * received // max(total,1)))
+        elif kind == "downloaded":
+            path = payload[0]
+            self._update_finished()
+            if not messagebox.askyesno("Install Verified Update",
+                "Installer downloaded and SHA-256 verified.\n\n"
+                "Close RGroupStudio and run the official installer now?", parent=self):
+                self.status.set("Verified installer saved at " + str(path))
+                return
+            try:
+                if sys.platform != "win32":
+                    raise RuntimeError("Automatic installer launch is supported on Windows only.")
+                flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+                subprocess.Popen([str(path), "/SILENT", "/SUPPRESSMSGBOXES",
+                                  "/NORESTART", "/CLOSEAPPLICATIONS", "/RESTARTAPPLICATIONS"],
+                                 cwd=str(path.parent), creationflags=flags, close_fds=True)
+                self.status.set("Installer launched; closing RGroupStudio...")
+                self.after(400, self.destroy)
+            except Exception as exc:
+                self.error("Update installation failed", exc)
+        elif kind == "download_error":
+            message = payload[0]
+            self.status.set("Update download failed: " + message)
+            self._update_finished()
+            messagebox.showerror("Update download failed", message, parent=self)
+        if self.update_busy:
+            self.after(120, self._poll_updates)
+
+    def _update_finished(self):
+        self.update_busy = False
+        self.check_update_button.configure(state="normal")
+
+    def _download_update(self, info):
+        self.update_busy = True
+        self.check_update_button.configure(state="disabled")
+        self.status.set("Downloading and verifying official installer...")
+        def worker():
+            try:
+                def progress(received,total):
+                    self.update_events.put(("progress", received, total))
+                path = download_installer(info, progress=progress)
+                self.update_events.put(("downloaded", path))
+            except Exception as exc:
+                self.update_events.put(("download_error", str(exc)))
+        threading.Thread(target=worker, daemon=True).start()
+        self.after(120, self._poll_updates)
 
     def _editor_mousewheel(self, event):
         """Scroll the entire assignment editor when the pointer is inside it."""
