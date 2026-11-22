@@ -22,6 +22,23 @@ class GUIIntegrationTests(unittest.TestCase):
         self.gui.refresh_scaffold()
         self.gui.update()
 
+    def test_primary_controls_visible_and_initial_preview(self):
+        gui = self.gui
+        gui.geometry("1040x670")
+        gui.update()
+        self.assertIsNotNone(gui.preview_image.image)
+        self.assertIn("PARENT SCAFFOLD", gui.properties.cget("text"))
+        for button in (gui.enumerate_all_button, gui.enumerate_current_button):
+            self.assertEqual(button.winfo_viewable(), 1)
+            self.assertGreater(button.winfo_width(), 70)
+            self.assertGreaterEqual(button.winfo_rootx(), gui.winfo_rootx())
+            self.assertLessEqual(button.winfo_rootx()+button.winfo_width(),
+                                 gui.winfo_rootx()+gui.winfo_width())
+            self.assertLessEqual(button.winfo_rooty()+button.winfo_height(),
+                                 gui.winfo_rooty()+gui.winfo_height())
+        gui.geometry("1280x760")
+        gui.update()
+
     def test_scaffold_change_resets_results_and_assignments(self):
         gui=self.gui
         gui.site_choice.set("0")
