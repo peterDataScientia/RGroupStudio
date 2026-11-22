@@ -169,6 +169,7 @@ class Studio(tk.Tk):
         try:
             candidate = parse_scaffold(self.scaffold.get())
             self.mol = candidate
+            self.loaded_scaffold = self.scaffold.get()
             allowed = sites(self.mol)
             self.site_combo["values"]=[str(i) for i in allowed]
             self.site_choice.set(str(allowed[0]) if allowed else "")
@@ -259,7 +260,7 @@ class Studio(tk.Tk):
             self.update_idletasks()
             assignments={site:[self.fragments[name] for name in names]
                          for site,names in self.assigned.items()}
-            self.records=enumerate_library(Chem.MolToSmiles(self.mol),assignments,self.limit.get())
+            self.records=enumerate_library(self.loaded_scaffold,assignments,self.limit.get())
             self.table.delete(*self.table.get_children())
             self.results_count.configure(text=f"{len(self.records)} compounds")
             for n,(name,mol) in enumerate(self.records):
