@@ -1,5 +1,6 @@
 """Windows desktop GUI end-to-end exercise with real Tk widgets and real file outputs."""
 import os
+os.environ["RGROUPSTUDIO_DISABLE_AUTO_CHECK"] = "1"
 import tempfile
 import unittest
 from pathlib import Path
@@ -21,6 +22,29 @@ class GUIIntegrationTests(unittest.TestCase):
         self.gui.scaffold.set("c1ccccc1")
         self.gui.refresh_scaffold()
         self.gui.update()
+
+    def test_updater_controls_and_manual_check(self):
+        from unittest.mock import patch
+        gui = self.gui
+        self.assertTrue(gui.check_update_button.winfo_viewable())
+        self.assertIn("Check for Updates", gui.check_update_button.cget("text"))
+        self.assertTrue(gui.auto_check_updates.get())
+        with patch("app.latest_update", return_value=None):
+            gui.check_for_updates(silent=True)
+            gui.update()
+            import time
+            for _ in range(50):
+                gui.update()
+                if not gui.update_busy:
+                    break
+                time.sleep(0.03)
+            self.assertFalse(gui.update_busy)
+            self.assertIn("up to date",gui.status.get())
+        with patch("app.set_auto_check") as setting:
+            gui.auto_check_updates.set(False)
+            gui._set_auto_update_preference()
+            setting.assert_called_once_with(False)
+            gui.auto_check_updates.set(True)
 
     def test_high_contrast_theme_and_primary_buttons(self):
         from tkinter import ttk
