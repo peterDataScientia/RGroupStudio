@@ -1,0 +1,4 @@
+rdkit>=2024.9.1,<2027
+Pillow>=10,<13
+matplotlib>=3.8,<4
+numpy>=1.26,<3
