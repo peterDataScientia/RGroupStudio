@@ -31,6 +31,7 @@ class Studio(tk.Tk):
         self.records = []
         self.selected = None
         self.images = []
+        self.last_export_errors = []
         self.limit = tk.IntVar(value=2500)
         self.show_indices = tk.BooleanVar(value=True)
         self.status = tk.StringVar(value="Ready")
@@ -155,14 +156,25 @@ class Studio(tk.Tk):
         logging.exception("%s: %s", title, exc)
         messagebox.showerror(title, str(exc) + "\n\nLog: " + str(LOGFILE))
 
+    def reset_results(self):
+        self.records = []
+        self.selected = None
+        self.table.delete(*self.table.get_children())
+        self.results_count.configure(text="0 compounds")
+        self.preview_image.configure(image="")
+        self.preview_image.image = None
+        self.properties.configure(text="Enumerate a library to inspect molecules.")
+
     def refresh_scaffold(self):
         try:
-            self.mol = parse_scaffold(self.scaffold.get())
+            candidate = parse_scaffold(self.scaffold.get())
+            self.mol = candidate
             allowed = sites(self.mol)
             self.site_combo["values"]=[str(i) for i in allowed]
             self.site_choice.set(str(allowed[0]) if allowed else "")
             self.assigned.clear()
             self.refresh_assignments()
+            self.reset_results()
             self.draw_scaffold()
             self.status.set("Scaffold loaded: %d substitutable positions" % len(allowed))
         except Exception as exc:
@@ -194,6 +206,7 @@ class Studio(tk.Tk):
             imported=load_fragments(path)
             self.fragments.update(imported)
             self.refresh_fragment_list()
+            self.reset_results()
             self.status.set("Imported %d fragments" % len(imported))
         except Exception as exc:
             self.error("Fragment import failed",exc)
@@ -209,6 +222,7 @@ class Studio(tk.Tk):
             validate_fragment(smiles)
             self.fragments[name]=smiles
             self.refresh_fragment_list()
+            self.reset_results()
         except Exception as exc:
             self.error("Invalid fragment",exc)
 
@@ -225,6 +239,7 @@ class Studio(tk.Tk):
                 raise ValueError("Select at least one fragment")
             self.assigned[site]=selected
             self.refresh_assignments()
+            self.reset_results()
             self.status.set("Assigned %d fragments to R @ %d"%(len(selected),site))
         except Exception as exc:
             self.error("Assignment failed",exc)
@@ -236,6 +251,7 @@ class Studio(tk.Tk):
         site=sorted(self.assigned)[selected[0]]
         self.assigned.pop(site)
         self.refresh_assignments()
+        self.reset_results()
 
     def enumerate(self):
         try:
@@ -243,7 +259,7 @@ class Studio(tk.Tk):
             self.update_idletasks()
             assignments={site:[self.fragments[name] for name in names]
                          for site,names in self.assigned.items()}
-            self.records=enumerate_library(self.scaffold.get(),assignments,self.limit.get())
+            self.records=enumerate_library(Chem.MolToSmiles(self.mol),assignments,self.limit.get())
             self.table.delete(*self.table.get_children())
             self.results_count.configure(text=f"{len(self.records)} compounds")
             for n,(name,mol) in enumerate(self.records):
@@ -253,6 +269,8 @@ class Studio(tk.Tk):
             if self.records:
                 self.table.selection_set("0")
                 self.choose_record()
+            else:
+                self.selected = None
             self.status.set("Generated %d unique molecules" % len(self.records))
         except Exception as exc:
             self.error("Enumeration failed",exc)
@@ -279,15 +297,18 @@ class Studio(tk.Tk):
         if not path:
             return
         try:
+            errors = []
             if kind=="csv":
                 export_csv(path,self.records)
             elif kind=="smi":
                 export_smi(path,self.records)
             else:
                 errors=export_sdf(path,self.records,three_d=(kind=="3d"))
-                if errors:
-                    messagebox.showwarning("Partial 3D export", "%d structures failed 3D generation. Details: %s"%(len(errors),errors[:3]))
-            self.status.set("Exported %d molecules to %s"%(len(self.records),path))
+            self.last_export_errors = errors
+            if errors:
+                messagebox.showwarning("Partial export", "%d molecules failed. First errors: %s" % (len(errors), errors[:3]))
+            completed = len(self.records) - len(errors)
+            self.status.set("Exported %d / %d molecules to %s" % (completed,len(self.records),path))
         except Exception as exc:
             self.error("Export failed",exc)
 
@@ -328,9 +349,22 @@ class Studio(tk.Tk):
 
 def self_test():
     from chemistry import enumerate_library
+    import tempfile
+    from chemistry import export_sdf, export_csv, export_smi
     records=enumerate_library("c1ccccc1",{0:["[*]F","[*]Cl"],2:["[*]C"]})
     assert len(records)==2
     assert all(m is not None for _,m in records)
+    with tempfile.TemporaryDirectory() as folder:
+        for extension, export in (("csv",export_csv),("smi",export_smi)):
+            dest = str(Path(folder) / ("library." + extension))
+            export(dest,records)
+            assert Path(dest).stat().st_size > 0
+        for dimension in (False,True):
+            dest = str(Path(folder) / ("library_%s.sdf" % ("3d" if dimension else "2d")))
+            assert not export_sdf(dest,records,three_d=dimension)
+            got = [m for m in Chem.SDMolSupplier(dest) if m]
+            assert len(got) == len(records)
+            assert all(m.GetNumConformers() == 1 for m in got)
     return 0
 
 def main():
