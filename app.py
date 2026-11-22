@@ -21,6 +21,12 @@ class Studio(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("RGroupStudio | Molecular Library Designer")
+        try:
+            asset_root = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+            self.logo_image = tk.PhotoImage(file=str(asset_root / "assets" / "approved_logo.png"))
+            self.iconphoto(True, self.logo_image)
+        except Exception:
+            logging.exception("Application icon could not be loaded")
         self.geometry("1350x810")
         self.minsize(1060, 650)
         self.configure(bg="#f1f5fa")
