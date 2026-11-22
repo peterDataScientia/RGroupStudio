@@ -70,12 +70,31 @@ class Studio(tk.Tk):
                  fg="#d9e7f8", bg="#17365d").pack(side="left")
         main = ttk.PanedWindow(self, orient=tk.HORIZONTAL)
         main.pack(fill="both", expand=True, padx=9, pady=7)
-        left = ttk.Frame(main, width=362)
+        # The complete editor (including assignments) is scrollable.
+        left_host = ttk.Frame(main, width=362)
         right = ttk.Frame(main)
-        main.add(left, weight=1)
+        main.add(left_host, weight=1)
         main.add(right, weight=3)
+        self.editor_canvas = tk.Canvas(left_host, borderwidth=0, highlightthickness=0,
+                                       background="#f1f5fa")
+        self.editor_scrollbar = ttk.Scrollbar(left_host, orient="vertical",
+                                               command=self.editor_canvas.yview)
+        self.editor_canvas.configure(yscrollcommand=self.editor_scrollbar.set)
+        self.editor_scrollbar.pack(side="right", fill="y")
+        self.editor_canvas.pack(side="left", fill="both", expand=True)
+        left = ttk.Frame(self.editor_canvas)
+        self.editor_window = self.editor_canvas.create_window((0, 0), window=left,
+                                                               anchor="nw")
+        left.bind("<Configure>", lambda event: self.editor_canvas.configure(
+            scrollregion=self.editor_canvas.bbox("all")))
+        self.editor_canvas.bind("<Configure>", lambda event: self.editor_canvas.itemconfigure(
+            self.editor_window, width=event.width))
+        # Mouse-wheel events are routed only while the pointer is inside this pane.
+        self.bind_all("<MouseWheel>", self._editor_mousewheel, add="+")
+        self.bind_all("<Button-4>", self._editor_mousewheel, add="+")
+        self.bind_all("<Button-5>", self._editor_mousewheel, add="+")
 
-        # Left: fit the full editing workflow within the visible window.
+        # Left editor: scaffold, sites, fragments, assignments.
         a = ttk.LabelFrame(left, text="1  Scaffold", padding=7)
         a.pack(fill="x", pady=(0, 5))
         inputbar = ttk.Frame(a)
@@ -173,6 +192,28 @@ class Studio(tk.Tk):
         ttk.Button(actions, text="View 3D", command=self.view3d).pack(side="left", padx=4)
         tk.Label(self, textvariable=self.status, bg="#e2eaf4", fg="#14325a",
                  anchor="w", padx=9, pady=3, font=("Segoe UI", 9)).pack(fill="x")
+
+    def _editor_mousewheel(self, event):
+        """Scroll the entire assignment editor when the pointer is inside it."""
+        canvas = getattr(self, "editor_canvas", None)
+        if canvas is None:
+            return
+        px, py = self.winfo_pointerxy()
+        cx, cy = canvas.winfo_rootx(), canvas.winfo_rooty()
+        if not (cx <= px < cx + canvas.winfo_width() and
+                cy <= py < cy + canvas.winfo_height()):
+            return
+        if getattr(event, "num", None) == 4:
+            steps = -1
+        elif getattr(event, "num", None) == 5:
+            steps = 1
+        else:
+            delta = getattr(event, "delta", 0)
+            steps = -max(1, abs(delta)//120) if delta > 0 else max(1, abs(delta)//120)
+            if delta == 0:
+                return
+        canvas.yview_scroll(steps, "units")
+        return "break"
 
     def error(self, title, exc):
         logging.exception("%s: %s", title, exc)
