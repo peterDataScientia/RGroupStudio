@@ -38,89 +38,118 @@ class Studio(tk.Tk):
         self.refresh_scaffold()
 
     def _build(self):
-        title = tk.Frame(self, bg="#17365d")
-        title.pack(fill="x")
-        tk.Label(title, text="RGroupStudio", font=("Segoe UI", 23, "bold"),
-                 fg="white", bg="#17365d", padx=20, pady=12).pack(side="left")
-        tk.Label(title, text="Scaffold-driven 2D / 3D ligand design",
-                 font=("Segoe UI", 12), fg="#d7e8ff", bg="#17365d").pack(side="left")
+        style = ttk.Style(self)
+        try:
+            style.theme_use("vista")
+        except tk.TclError:
+            style.theme_use("clam")
+        style.configure("TButton", padding=(8, 4), font=("Segoe UI", 9))
+        style.configure("TLabel", font=("Segoe UI", 9))
+        style.configure("TLabelframe.Label", font=("Segoe UI", 9, "bold"))
+        style.configure("Treeview", rowheight=25, font=("Segoe UI", 9))
+        style.configure("Treeview.Heading", font=("Segoe UI", 9, "bold"))
+        self.geometry("1280x760")
+        self.minsize(1040, 670)
+        # Compact toolbar: no oversized branding or unused banner.
+        header = tk.Frame(self, bg="#17365d", height=44)
+        header.pack(fill="x")
+        header.pack_propagate(False)
+        tk.Label(header, text="RGroupStudio", font=("Segoe UI", 14, "bold"),
+                 fg="white", bg="#17365d", padx=13).pack(side="left", fill="y")
+        tk.Label(header, text="Molecular Library Designer", font=("Segoe UI", 9),
+                 fg="#d9e7f8", bg="#17365d").pack(side="left")
         main = ttk.PanedWindow(self, orient=tk.HORIZONTAL)
-        main.pack(fill="both", expand=True, padx=12, pady=10)
-        left = ttk.Frame(main, width=410)
+        main.pack(fill="both", expand=True, padx=9, pady=7)
+        left = ttk.Frame(main, width=362)
         right = ttk.Frame(main)
         main.add(left, weight=1)
         main.add(right, weight=3)
 
-        a = ttk.LabelFrame(left, text="1. Scaffold SMILES", padding=9)
-        a.pack(fill="x", pady=5)
-        ttk.Entry(a, textvariable=self.scaffold, width=42).pack(fill="x")
-        ttk.Button(a, text="Load / Draw scaffold", command=self.refresh_scaffold).pack(anchor="w", pady=4)
-        ttk.Checkbutton(a, text="Show atom indices", variable=self.show_indices,
-                        command=self.draw_scaffold).pack(anchor="w")
-        self.scaffold_display = ttk.Label(a)
-        self.scaffold_display.pack(pady=4)
+        # Left: fit the full editing workflow within the visible window.
+        a = ttk.LabelFrame(left, text="1  Scaffold", padding=7)
+        a.pack(fill="x", pady=(0, 5))
+        inputbar = ttk.Frame(a)
+        inputbar.pack(fill="x")
+        ttk.Entry(inputbar, textvariable=self.scaffold).pack(side="left", fill="x", expand=True)
+        ttk.Button(inputbar, text="Draw", command=self.refresh_scaffold).pack(side="left", padx=(5, 0))
+        ttk.Checkbutton(a, text="Atom indices", variable=self.show_indices,
+                        command=self.draw_scaffold).pack(anchor="w", pady=(3, 0))
+        self.scaffold_display = ttk.Label(a, anchor="center")
+        self.scaffold_display.pack(fill="x", pady=(0, 1))
 
-        b = ttk.LabelFrame(left, text="2. R-group positions", padding=9)
-        b.pack(fill="x", pady=5)
+        b = ttk.LabelFrame(left, text="2  Attachment site", padding=7)
+        b.pack(fill="x", pady=(0, 5))
         self.site_combo = ttk.Combobox(b, state="readonly", textvariable=self.site_choice)
         self.site_combo.pack(fill="x")
-        ttk.Label(b, text="Heavy-atom indices with replaceable H atoms").pack(anchor="w", pady=4)
 
-        c = ttk.LabelFrame(left, text="3. Fragment library", padding=9)
-        c.pack(fill="both", expand=True, pady=5)
-        bar = ttk.Frame(c)
-        bar.pack(fill="x")
-        ttk.Button(bar, text="Import .smi", command=self.import_fragments).pack(side="left")
-        ttk.Button(bar, text="Add SMILES", command=self.add_fragment).pack(side="left", padx=5)
-        self.fragment_list = tk.Listbox(c, height=10, selectmode="extended", exportselection=False)
-        self.fragment_list.pack(fill="both", expand=True, pady=6)
+        c = ttk.LabelFrame(left, text="3  Fragments and assignments", padding=7)
+        c.pack(fill="both", expand=True, pady=(0, 5))
+        fragmentbar = ttk.Frame(c)
+        fragmentbar.pack(fill="x", pady=(0, 4))
+        ttk.Button(fragmentbar, text="Import .smi", command=self.import_fragments).pack(side="left")
+        ttk.Button(fragmentbar, text="+ Fragment", command=self.add_fragment).pack(side="left", padx=4)
+        ttk.Button(fragmentbar, text="Assign to site", command=self.assign).pack(side="right")
+        listframe = ttk.Frame(c)
+        listframe.pack(fill="both", expand=True)
+        self.fragment_list = tk.Listbox(listframe, height=6, selectmode="extended",
+                                        exportselection=False, activestyle="dotbox",
+                                        font=("Segoe UI", 9), relief="solid", bd=1)
+        self.fragment_list.pack(side="left", fill="both", expand=True)
+        fragscroll = ttk.Scrollbar(listframe, orient="vertical", command=self.fragment_list.yview)
+        fragscroll.pack(side="right", fill="y")
+        self.fragment_list.configure(yscrollcommand=fragscroll.set)
         self.refresh_fragment_list()
-        ttk.Button(c, text="Assign selected fragments to R-site",
-                   command=self.assign).pack(fill="x", pady=3)
-        ttk.Label(c, text="Assignments").pack(anchor="w")
-        self.assignment_list = tk.Listbox(c, height=5)
-        self.assignment_list.pack(fill="x", pady=3)
-        ttk.Button(c, text="Remove selected assignment",
-                   command=self.remove_assignment).pack(anchor="w")
+        ttk.Label(c, text="R-group assignments").pack(anchor="w", pady=(5, 1))
+        assignmentrow = ttk.Frame(c)
+        assignmentrow.pack(fill="x")
+        self.assignment_list = tk.Listbox(assignmentrow, height=3, font=("Segoe UI", 9),
+                                         relief="solid", bd=1)
+        self.assignment_list.pack(side="left", fill="x", expand=True)
+        ttk.Button(assignmentrow, text="Remove", command=self.remove_assignment).pack(side="left", padx=(5, 0))
 
         controls = ttk.Frame(left)
-        controls.pack(fill="x", pady=8)
-        ttk.Label(controls, text="Max products").pack(side="left")
-        ttk.Entry(controls, textvariable=self.limit, width=8).pack(side="left", padx=5)
-        ttk.Button(controls, text="Enumerate all combinations",
-                   command=self.enumerate).pack(side="left", padx=5)
+        controls.pack(fill="x", pady=(0, 3))
+        ttk.Label(controls, text="Max products:").pack(side="left")
+        ttk.Entry(controls, textvariable=self.limit, width=7).pack(side="left", padx=(5, 8))
+        ttk.Button(controls, text="Enumerate library", command=self.enumerate).pack(side="left", fill="x", expand=True)
 
-        results = ttk.LabelFrame(right, text="Enumerated molecules", padding=8)
-        results.pack(fill="both", expand=True)
+        # Right: a compact results table with room for an actual molecule preview.
+        resulthead = ttk.Frame(right)
+        resulthead.pack(fill="x", pady=(0, 5))
+        ttk.Label(resulthead, text="Enumerated molecules", font=("Segoe UI", 10, "bold")).pack(side="left")
+        self.results_count = ttk.Label(resulthead, text="0 compounds")
+        self.results_count.pack(side="right")
+        results = ttk.Frame(right)
+        results.pack(fill="x")
         cols = ("id", "smiles", "mw", "logp", "tpsa", "qed")
-        self.table = ttk.Treeview(results, columns=cols, show="headings", height=14)
+        self.table = ttk.Treeview(results, columns=cols, show="headings", height=9)
         labels = {"id":"ID", "smiles":"Canonical SMILES", "mw":"MW", "logp":"cLogP", "tpsa":"TPSA", "qed":"QED"}
         for col in cols:
             self.table.heading(col, text=labels[col])
-            self.table.column(col, width=105 if col!="smiles" else 350, stretch=(col=="smiles"))
-        self.table.pack(side="left", fill="both", expand=True)
+            self.table.column(col, width=90 if col!="smiles" else 300, minwidth=65,
+                              stretch=(col=="smiles"))
+        self.table.pack(side="left", fill="x", expand=True)
         scrollbar=ttk.Scrollbar(results, orient="vertical", command=self.table.yview)
         scrollbar.pack(side="right", fill="y")
         self.table.configure(yscrollcommand=scrollbar.set)
         self.table.bind("<<TreeviewSelect>>", self.choose_record)
 
-        preview = ttk.LabelFrame(right, text="Selected molecule — 2D preview and properties", padding=8)
-        preview.pack(fill="both", expand=True, pady=8)
-        self.preview_image=ttk.Label(preview)
-        self.preview_image.pack(side="left", padx=15)
-        self.properties=ttk.Label(preview, text="Select a molecule in the results table",
-                                  font=("Consolas", 11), justify="left")
-        self.properties.pack(side="left", anchor="n", padx=15, pady=12)
-
-        actions=ttk.Frame(right)
-        actions.pack(fill="x", pady=5)
-        ttk.Button(actions, text="Export CSV", command=lambda:self.export("csv")).pack(side="left", padx=3)
-        ttk.Button(actions, text="Export SMILES", command=lambda:self.export("smi")).pack(side="left", padx=3)
-        ttk.Button(actions, text="Export 2D SDF", command=lambda:self.export("2d")).pack(side="left", padx=3)
-        ttk.Button(actions, text="Export 3D SDF", command=lambda:self.export("3d")).pack(side="left", padx=3)
-        ttk.Button(actions, text="View 3D", command=self.view3d).pack(side="left", padx=3)
+        preview = ttk.LabelFrame(right, text="Molecular preview and properties", padding=7)
+        preview.pack(fill="both", expand=True, pady=(7, 5))
+        self.preview_image=ttk.Label(preview, anchor="center")
+        self.preview_image.pack(side="left", fill="both", expand=True)
+        self.properties=ttk.Label(preview, text="Load a scaffold and enumerate to view products.\n\nSelect any product to inspect properties.",
+                                  font=("Consolas", 10), justify="left")
+        self.properties.pack(side="left", anchor="n", padx=(8, 22), pady=12)
+        actions = ttk.Frame(right)
+        actions.pack(fill="x", pady=(0, 2))
+        ttk.Button(actions, text="CSV", command=lambda:self.export("csv")).pack(side="left", padx=(0, 4))
+        ttk.Button(actions, text="SMILES", command=lambda:self.export("smi")).pack(side="left", padx=4)
+        ttk.Button(actions, text="2D SDF", command=lambda:self.export("2d")).pack(side="left", padx=4)
+        ttk.Button(actions, text="3D SDF", command=lambda:self.export("3d")).pack(side="left", padx=4)
+        ttk.Button(actions, text="View 3D", command=self.view3d).pack(side="left", padx=4)
         tk.Label(self, textvariable=self.status, bg="#e2eaf4", fg="#14325a",
-                 anchor="w", padx=12, pady=5).pack(fill="x")
+                 anchor="w", padx=9, pady=3, font=("Segoe UI", 9)).pack(fill="x")
 
     def error(self, title, exc):
         logging.exception("%s: %s", title, exc)
@@ -146,7 +175,7 @@ class Studio(tk.Tk):
         if self.show_indices.get():
             for atom in m.GetAtoms():
                 atom.SetProp("atomNote", str(atom.GetIdx()))
-        img = Draw.MolToImage(m, size=(355, 190))
+        img = Draw.MolToImage(m, size=(310, 145))
         photo = ImageTk.PhotoImage(img)
         self.scaffold_display.configure(image=photo)
         self.scaffold_display.image = photo
@@ -216,6 +245,7 @@ class Studio(tk.Tk):
                          for site,names in self.assigned.items()}
             self.records=enumerate_library(self.scaffold.get(),assignments,self.limit.get())
             self.table.delete(*self.table.get_children())
+            self.results_count.configure(text=f"{len(self.records)} compounds")
             for n,(name,mol) in enumerate(self.records):
                 p=molecular_properties(mol)
                 self.table.insert("",tk.END,iid=str(n),
