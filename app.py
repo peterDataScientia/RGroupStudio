@@ -34,6 +34,9 @@ class Studio(tk.Tk):
         self.last_export_errors = []
         self.limit = tk.IntVar(value=2500)
         self.show_indices = tk.BooleanVar(value=True)
+        self.show_hydrogens = tk.BooleanVar(value=False)
+        self.export_selection_only = tk.BooleanVar(value=False)
+        self.current_fragments = {}
         self.status = tk.StringVar(value="Ready")
         self._build()
         self.refresh_scaffold()
@@ -73,8 +76,12 @@ class Studio(tk.Tk):
         inputbar.pack(fill="x")
         ttk.Entry(inputbar, textvariable=self.scaffold).pack(side="left", fill="x", expand=True)
         ttk.Button(inputbar, text="Draw", command=self.refresh_scaffold).pack(side="left", padx=(5, 0))
-        ttk.Checkbutton(a, text="Atom indices", variable=self.show_indices,
-                        command=self.draw_scaffold).pack(anchor="w", pady=(3, 0))
+        optionrow = ttk.Frame(a)
+        optionrow.pack(fill="x", pady=(3,0))
+        ttk.Checkbutton(optionrow, text="Atom indices", variable=self.show_indices,
+                        command=self.draw_scaffold).pack(side="left")
+        ttk.Checkbutton(optionrow, text="Show H", variable=self.show_hydrogens,
+                        command=self.draw_scaffold).pack(side="left", padx=12)
         self.scaffold_display = ttk.Label(a, anchor="center")
         self.scaffold_display.pack(fill="x", pady=(0, 1))
 
@@ -89,7 +96,7 @@ class Studio(tk.Tk):
         fragmentbar.pack(fill="x", pady=(0, 4))
         ttk.Button(fragmentbar, text="Import .smi", command=self.import_fragments).pack(side="left")
         ttk.Button(fragmentbar, text="+ Fragment", command=self.add_fragment).pack(side="left", padx=4)
-        ttk.Button(fragmentbar, text="Assign to site", command=self.assign).pack(side="right")
+        ttk.Button(fragmentbar, text="Add R-group", command=self.assign).pack(side="right")
         listframe = ttk.Frame(c)
         listframe.pack(fill="both", expand=True)
         self.fragment_list = tk.Listbox(listframe, height=6, selectmode="extended",
@@ -112,7 +119,8 @@ class Studio(tk.Tk):
         controls.pack(fill="x", pady=(0, 3))
         ttk.Label(controls, text="Max products:").pack(side="left")
         ttk.Entry(controls, textvariable=self.limit, width=7).pack(side="left", padx=(5, 8))
-        ttk.Button(controls, text="Enumerate library", command=self.enumerate).pack(side="left", fill="x", expand=True)
+        ttk.Button(controls, text="Current", command=self.enumerate_current).pack(side="left", padx=(0,3))
+        ttk.Button(controls, text="All combinations", command=self.enumerate).pack(side="left", fill="x", expand=True)
 
         # Right: a compact results table with room for an actual molecule preview.
         resulthead = ttk.Frame(right)
@@ -144,6 +152,7 @@ class Studio(tk.Tk):
         self.properties.pack(side="left", anchor="n", padx=(8, 22), pady=12)
         actions = ttk.Frame(right)
         actions.pack(fill="x", pady=(0, 2))
+        ttk.Checkbutton(actions, text="Selected only", variable=self.export_selection_only).pack(side="left", padx=(0, 6))
         ttk.Button(actions, text="CSV", command=lambda:self.export("csv")).pack(side="left", padx=(0, 4))
         ttk.Button(actions, text="SMILES", command=lambda:self.export("smi")).pack(side="left", padx=4)
         ttk.Button(actions, text="2D SDF", command=lambda:self.export("2d")).pack(side="left", padx=4)
@@ -174,6 +183,7 @@ class Studio(tk.Tk):
             self.site_combo["values"]=[str(i) for i in allowed]
             self.site_choice.set(str(allowed[0]) if allowed else "")
             self.assigned.clear()
+            self.current_fragments.clear()
             self.refresh_assignments()
             self.reset_results()
             self.draw_scaffold()
@@ -184,7 +194,7 @@ class Studio(tk.Tk):
     def draw_scaffold(self):
         if not hasattr(self, "mol"):
             return
-        m = Chem.Mol(self.mol)
+        m = Chem.AddHs(self.mol) if self.show_hydrogens.get() else Chem.Mol(self.mol)
         if self.show_indices.get():
             for atom in m.GetAtoms():
                 atom.SetProp("atomNote", str(atom.GetIdx()))
@@ -229,8 +239,8 @@ class Studio(tk.Tk):
 
     def refresh_assignments(self):
         self.assignment_list.delete(0,tk.END)
-        for site, items in sorted(self.assigned.items()):
-            self.assignment_list.insert(tk.END,"R @ %d: %s"%(site,", ".join(items)))
+        for n,(site, items) in enumerate(sorted(self.assigned.items()),1):
+            self.assignment_list.insert(tk.END,"R%d @ atom %d: %s"%(n,site,", ".join(items)))
 
     def assign(self):
         try:
@@ -239,6 +249,7 @@ class Studio(tk.Tk):
             if not selected:
                 raise ValueError("Select at least one fragment")
             self.assigned[site]=selected
+            self.current_fragments[site]=selected[0]
             self.refresh_assignments()
             self.reset_results()
             self.status.set("Assigned %d fragments to R @ %d"%(len(selected),site))
@@ -251,15 +262,28 @@ class Studio(tk.Tk):
             return
         site=sorted(self.assigned)[selected[0]]
         self.assigned.pop(site)
+        self.current_fragments.pop(site, None)
         self.refresh_assignments()
         self.reset_results()
 
+    def enumerate_current(self):
+        try:
+            self._enumerate({site: [self.fragments[self.current_fragments[site]]]
+                             for site in self.assigned}, "current assignment")
+        except Exception as exc:
+            self.error("Current assignment failed", exc)
+
     def enumerate(self):
+        try:
+            self._enumerate({site:[self.fragments[name] for name in names]
+                             for site,names in self.assigned.items()}, "all combinations")
+        except Exception as exc:
+            self.error("Enumeration failed", exc)
+
+    def _enumerate(self, assignments, label):
         try:
             self.status.set("Enumerating molecules...")
             self.update_idletasks()
-            assignments={site:[self.fragments[name] for name in names]
-                         for site,names in self.assigned.items()}
             self.records=enumerate_library(self.loaded_scaffold,assignments,self.limit.get())
             self.table.delete(*self.table.get_children())
             self.results_count.configure(text=f"{len(self.records)} compounds")
@@ -272,7 +296,7 @@ class Studio(tk.Tk):
                 self.choose_record()
             else:
                 self.selected = None
-            self.status.set("Generated %d unique molecules" % len(self.records))
+            self.status.set("Generated %d unique molecules (%s)" % (len(self.records), label))
         except Exception as exc:
             self.error("Enumeration failed",exc)
 
@@ -292,6 +316,13 @@ class Studio(tk.Tk):
         if not self.records:
             messagebox.showinfo("No molecules","Enumerate a library first")
             return
+        records = self.records
+        if self.export_selection_only.get():
+            ids = self.table.selection()
+            if not ids:
+                messagebox.showinfo("No selection","Select at least one molecule first")
+                return
+            records = [self.records[int(i)] for i in ids]
         ext="sdf" if kind in ("2d","3d") else kind
         path=filedialog.asksaveasfilename(defaultextension="."+ext,
                    initialfile="RGroupStudio_%s.%s"%(kind,ext))
@@ -300,16 +331,16 @@ class Studio(tk.Tk):
         try:
             errors = []
             if kind=="csv":
-                export_csv(path,self.records)
+                export_csv(path,records)
             elif kind=="smi":
-                export_smi(path,self.records)
+                export_smi(path,records)
             else:
-                errors=export_sdf(path,self.records,three_d=(kind=="3d"))
+                errors=export_sdf(path,records,three_d=(kind=="3d"))
             self.last_export_errors = errors
             if errors:
                 messagebox.showwarning("Partial export", "%d molecules failed. First errors: %s" % (len(errors), errors[:3]))
-            completed = len(self.records) - len(errors)
-            self.status.set("Exported %d / %d molecules to %s" % (completed,len(self.records),path))
+            completed = len(records) - len(errors)
+            self.status.set("Exported %d / %d molecules to %s" % (completed,len(records),path))
         except Exception as exc:
             self.error("Export failed",exc)
 
