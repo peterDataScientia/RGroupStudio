@@ -29,7 +29,7 @@ class Studio(tk.Tk):
             logging.exception("Application icon could not be loaded")
         self.geometry("1350x810")
         self.minsize(1060, 650)
-        self.configure(bg="#f1f5fa")
+        self.configure(bg="#E9EEF5")
         self.scaffold = tk.StringVar(value="c1ccccc1")
         self.site_choice = tk.StringVar()
         self.fragments = dict(FRAGMENTS)
@@ -48,16 +48,56 @@ class Studio(tk.Tk):
         self.refresh_scaffold()
 
     def _build(self):
+        # CLAM allows consistent, high-contrast palette on Windows.
+        # Native Vista ignores many ttk background and text color properties.
         style = ttk.Style(self)
-        try:
-            style.theme_use("vista")
-        except tk.TclError:
-            style.theme_use("clam")
-        style.configure("TButton", padding=(8, 4), font=("Segoe UI", 9))
-        style.configure("TLabel", font=("Segoe UI", 9))
-        style.configure("TLabelframe.Label", font=("Segoe UI", 9, "bold"))
-        style.configure("Treeview", rowheight=25, font=("Segoe UI", 9))
-        style.configure("Treeview.Heading", font=("Segoe UI", 9, "bold"))
+        style.theme_use("clam")
+        self.palette = {
+            "background": "#E9EEF5", "surface": "#FFFFFF", "text": "#10243B",
+            "muted": "#334E69", "border": "#A8BBCF", "primary": "#0759A7",
+            "primary_hover": "#034580", "accent": "#0F766E",
+            "selection": "#0864B1", "selection_text": "#FFFFFF",
+        }
+        P = self.palette
+        style.configure(".", background=P["background"], foreground=P["text"],
+                        font=("Segoe UI", 10))
+        style.configure("TFrame", background=P["background"])
+        style.configure("TLabel", background=P["background"], foreground=P["text"],
+                        font=("Segoe UI", 10, "bold"))
+        style.configure("TButton", padding=(10, 6), font=("Segoe UI", 10, "bold"),
+                        background="#D7E4F1", foreground=P["text"], bordercolor=P["border"],
+                        lightcolor=P["border"], darkcolor=P["border"], relief="raised")
+        style.map("TButton", background=[("active", "#C1D6EB"), ("pressed", "#AFCAE3")],
+                  foreground=[("disabled", "#53697F")])
+        style.configure("Primary.TButton", padding=(13, 7), font=("Segoe UI", 10, "bold"),
+                        foreground="#FFFFFF", background=P["primary"],
+                        bordercolor=P["primary"], relief="raised")
+        style.map("Primary.TButton",
+                  background=[("active", P["primary_hover"]), ("pressed", "#02376A")],
+                  foreground=[("active", "#FFFFFF"), ("disabled", "#DAE1E8")])
+        style.configure("TLabelframe", background=P["surface"], borderwidth=2,
+                        bordercolor=P["border"], relief="solid")
+        style.configure("TLabelframe.Label", background=P["background"],
+                        foreground="#0A426F", font=("Segoe UI", 10, "bold"))
+        style.configure("TEntry", fieldbackground=P["surface"], foreground=P["text"],
+                        insertcolor=P["text"], bordercolor=P["border"], padding=5)
+        style.configure("TCombobox", fieldbackground=P["surface"], foreground=P["text"],
+                        bordercolor=P["border"], padding=4)
+        style.map("TCombobox", fieldbackground=[("readonly", P["surface"])],
+                  foreground=[("readonly", P["text"])])
+        style.configure("TCheckbutton", background=P["background"], foreground=P["text"],
+                        font=("Segoe UI", 10, "bold"))
+        style.map("TCheckbutton", background=[("active", P["background"])])
+        style.configure("Treeview", rowheight=29, background=P["surface"],
+                        fieldbackground=P["surface"], foreground=P["text"],
+                        font=("Segoe UI", 10), borderwidth=1)
+        style.map("Treeview", background=[("selected", P["selection"])],
+                  foreground=[("selected", P["selection_text"])])
+        style.configure("Treeview.Heading", background="#C7D9ED", foreground="#0B3259",
+                        font=("Segoe UI", 10, "bold"), padding=7, relief="raised")
+        style.map("Treeview.Heading", background=[("active", "#AFC9E4")])
+        style.configure("Vertical.TScrollbar", background="#A3BED8", troughcolor="#E5ECF4",
+                        arrowcolor="#143C5F", bordercolor="#7A99B6")
         self.geometry("1280x760")
         self.minsize(1040, 670)
         # Compact toolbar: no oversized branding or unused banner.
@@ -76,7 +116,7 @@ class Studio(tk.Tk):
         main.add(left_host, weight=1)
         main.add(right, weight=3)
         self.editor_canvas = tk.Canvas(left_host, borderwidth=0, highlightthickness=0,
-                                       background="#f1f5fa")
+                                       background="#E9EEF5")
         self.editor_scrollbar = ttk.Scrollbar(left_host, orient="vertical",
                                                command=self.editor_canvas.yview)
         self.editor_canvas.configure(yscrollcommand=self.editor_scrollbar.set)
@@ -121,12 +161,14 @@ class Studio(tk.Tk):
         fragmentbar.pack(fill="x", pady=(0, 4))
         ttk.Button(fragmentbar, text="Import .smi", command=self.import_fragments).pack(side="left")
         ttk.Button(fragmentbar, text="+ Fragment", command=self.add_fragment).pack(side="left", padx=4)
-        ttk.Button(fragmentbar, text="Add R-group", command=self.assign).pack(side="right")
+        ttk.Button(fragmentbar, text="Add R-group", command=self.assign, style="Primary.TButton").pack(side="right")
         listframe = ttk.Frame(c)
         listframe.pack(fill="both", expand=True)
         self.fragment_list = tk.Listbox(listframe, height=6, selectmode="extended",
                                         exportselection=False, activestyle="dotbox",
-                                        font=("Segoe UI", 9), relief="solid", bd=1)
+                                        font=("Segoe UI", 10, "bold"), bg="#FFFFFF", fg="#10243B",
+                                        selectbackground="#0864B1", selectforeground="#FFFFFF",
+                                        highlightbackground="#A8BBCF", highlightthickness=1, relief="solid", bd=1)
         self.fragment_list.pack(side="left", fill="both", expand=True)
         fragscroll = ttk.Scrollbar(listframe, orient="vertical", command=self.fragment_list.yview)
         fragscroll.pack(side="right", fill="y")
@@ -135,7 +177,9 @@ class Studio(tk.Tk):
         ttk.Label(c, text="R-group assignments").pack(anchor="w", pady=(5, 1))
         assignmentrow = ttk.Frame(c)
         assignmentrow.pack(fill="x")
-        self.assignment_list = tk.Listbox(assignmentrow, height=3, font=("Segoe UI", 9),
+        self.assignment_list = tk.Listbox(assignmentrow, height=3, font=("Segoe UI", 10, "bold"), bg="#FFFFFF", fg="#10243B",
+                                         selectbackground="#0864B1", selectforeground="#FFFFFF",
+                                         highlightbackground="#A8BBCF", highlightthickness=1,
                                          relief="solid", bd=1)
         self.assignment_list.pack(side="left", fill="x", expand=True)
         ttk.Button(assignmentrow, text="Remove", command=self.remove_assignment).pack(side="left", padx=(5, 0))
@@ -146,15 +190,15 @@ class Studio(tk.Tk):
         controls = ttk.Frame(right)
         controls.pack(fill="x", pady=(0, 8))
         self.enumerate_all_button = ttk.Button(controls, text="ENUMERATE ALL COMBINATIONS",
-                    command=self.enumerate)
+                    command=self.enumerate, style="Primary.TButton")
         self.enumerate_all_button.pack(side="left", padx=(0, 6))
         self.enumerate_current_button = ttk.Button(controls, text="Enumerate Current",
-                    command=self.enumerate_current)
+                    command=self.enumerate_current, style="Primary.TButton")
         self.enumerate_current_button.pack(side="left", padx=(0, 10))
         ttk.Label(controls, text="Max:").pack(side="left")
         ttk.Entry(controls, textvariable=self.limit, width=7).pack(side="left", padx=(4, 0))
         ttk.Label(controls, text="Select fragments, Add R-group, then enumerate.",
-                  foreground="#365a7b").pack(side="right")
+                  foreground="#244766").pack(side="right")
         resulthead = ttk.Frame(right)
         resulthead.pack(fill="x", pady=(0, 5))
         ttk.Label(resulthead, text="Enumerated molecules", font=("Segoe UI", 10, "bold")).pack(side="left")
@@ -180,7 +224,7 @@ class Studio(tk.Tk):
         self.preview_image=ttk.Label(preview, anchor="center")
         self.preview_image.pack(side="left", fill="both", expand=True)
         self.properties=ttk.Label(preview, text="Load a scaffold and enumerate to view products.\n\nSelect any product to inspect properties.",
-                                  font=("Consolas", 10), justify="left")
+                                  font=("Consolas", 11, "bold"), justify="left")
         self.properties.pack(side="left", anchor="n", padx=(8, 22), pady=12)
         actions = ttk.Frame(right)
         actions.pack(fill="x", pady=(0, 2))
@@ -190,7 +234,7 @@ class Studio(tk.Tk):
         ttk.Button(actions, text="2D SDF", command=lambda:self.export("2d")).pack(side="left", padx=4)
         ttk.Button(actions, text="3D SDF", command=lambda:self.export("3d")).pack(side="left", padx=4)
         ttk.Button(actions, text="View 3D", command=self.view3d).pack(side="left", padx=4)
-        tk.Label(self, textvariable=self.status, bg="#e2eaf4", fg="#14325a",
+        tk.Label(self, textvariable=self.status, bg="#e2eaf4", fg="#10243B",
                  anchor="w", padx=9, pady=3, font=("Segoe UI", 9)).pack(fill="x")
 
     def _editor_mousewheel(self, event):
