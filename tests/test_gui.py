@@ -22,6 +22,28 @@ class GUIIntegrationTests(unittest.TestCase):
         self.gui.refresh_scaffold()
         self.gui.update()
 
+    def test_editor_scrollbar_and_mousewheel(self):
+        gui = self.gui
+        gui.geometry("1040x670")
+        gui.update()
+        canvas = gui.editor_canvas
+        self.assertTrue(canvas.winfo_viewable())
+        self.assertTrue(gui.editor_scrollbar.winfo_viewable())
+        self.assertIsNotNone(canvas.cget("yscrollcommand"))
+        self.assertTrue(gui.assignment_list.winfo_exists())
+        # Canvas must have valid content and a functioning scroll region.
+        bbox = canvas.bbox("all")
+        self.assertIsNotNone(bbox)
+        self.assertGreater(bbox[3], 0)
+        canvas.yview_moveto(1.0)
+        gui.update()
+        bottom = canvas.yview()
+        self.assertGreaterEqual(bottom[1], 0.99)
+        canvas.yview_moveto(0.0)
+        gui.update()
+        gui.geometry("1280x760")
+        gui.update()
+
     def test_primary_controls_visible_and_initial_preview(self):
         gui = self.gui
         gui.geometry("1040x670")
