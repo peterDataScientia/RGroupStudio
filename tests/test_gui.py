@@ -30,8 +30,7 @@ class GUIIntegrationTests(unittest.TestCase):
         gui.assign()
         gui.enumerate()
         self.assertGreater(len(gui.records),0)
-        gui.scaffold.set("CCO")
-        gui.refresh_scaffold()
+        gui.show_hydrogens.set(True)\n        gui.draw_scaffold()\n        self.assertIsNotNone(gui.scaffold_display.image)\n        gui.scaffold.set("CCO")\n        gui.refresh_scaffold()
         self.assertEqual(len(gui.records),0)
         self.assertIsNone(gui.selected)
         self.assertEqual(len(gui.assigned),0)
@@ -49,6 +48,8 @@ class GUIIntegrationTests(unittest.TestCase):
         gui.fragment_list.selection_set(3)
         gui.assign()
         self.assertEqual(len(gui.assigned),2)
+        gui.enumerate_current()
+        self.assertEqual(len(gui.records),1)
         gui.enumerate()
         self.assertEqual(len(gui.records),2)
         self.assertEqual(len(gui.table.get_children()),2)
@@ -71,7 +72,7 @@ class GUIIntegrationTests(unittest.TestCase):
                     self.assertTrue(all(m.GetNumConformers()==1 for m in result))
                     if kind=="3d":
                         self.assertTrue(any(abs(m.GetConformer().GetAtomPosition(0).z)>1e-5 for m in result))
-            # Import another fragment library using the actual handler.
+            # Verify selected-only export writes exactly one product.\n            gui.export_selection_only.set(True)\n            selected_path=Path(tmp)/"selected.sdf"\n            with patch("app.filedialog.asksaveasfilename",return_value=str(selected_path)):\n                gui.export("3d")\n            selected_mols=[m for m in Chem.SDMolSupplier(str(selected_path)) if m]\n            self.assertEqual(len(selected_mols),1)\n            gui.export_selection_only.set(False)\n            # Import another fragment library using the actual handler.
             infile=Path(tmp)/"fragments.smi"
             infile.write_text("[*]N CustomAmino\n[*]OC CustomMethoxy\n",encoding="utf-8")
             with patch("app.filedialog.askopenfilename",return_value=str(infile)):
