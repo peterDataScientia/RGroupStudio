@@ -22,6 +22,19 @@ class GUIIntegrationTests(unittest.TestCase):
         self.gui.refresh_scaffold()
         self.gui.update()
 
+    def test_high_contrast_theme_and_primary_buttons(self):
+        from tkinter import ttk
+        gui = self.gui
+        theme = ttk.Style(gui)
+        self.assertEqual(theme.theme_use(), "clam")
+        self.assertEqual(theme.lookup("Primary.TButton", "background"), "#0759A7")
+        self.assertEqual(theme.lookup("Primary.TButton", "foreground"), "#FFFFFF")
+        self.assertEqual(theme.lookup("Treeview", "foreground"), "#10243B")
+        self.assertEqual(gui.enumerate_all_button.cget("style"), "Primary.TButton")
+        self.assertEqual(gui.enumerate_current_button.cget("style"), "Primary.TButton")
+        self.assertEqual(gui.fragment_list.cget("fg"), "#10243B")
+        self.assertEqual(gui.assignment_list.cget("selectbackground"), "#0864B1")
+
     def test_editor_scrollbar_and_mousewheel(self):
         gui = self.gui
         gui.geometry("1040x670")
