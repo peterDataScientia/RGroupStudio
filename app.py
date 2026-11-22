@@ -121,14 +121,21 @@ class Studio(tk.Tk):
         self.assignment_list.pack(side="left", fill="x", expand=True)
         ttk.Button(assignmentrow, text="Remove", command=self.remove_assignment).pack(side="left", padx=(5, 0))
 
-        controls = ttk.Frame(left)
-        controls.pack(fill="x", pady=(0, 3))
-        ttk.Label(controls, text="Max products:").pack(side="left")
-        ttk.Entry(controls, textvariable=self.limit, width=7).pack(side="left", padx=(5, 8))
-        ttk.Button(controls, text="Current", command=self.enumerate_current).pack(side="left", padx=(0,3))
-        ttk.Button(controls, text="All combinations", command=self.enumerate).pack(side="left", fill="x", expand=True)
-
         # Right: a compact results table with room for an actual molecule preview.
+        # Primary actions are pinned to the TOP of the right workspace.
+        # They remain visible even when Windows display scaling clips the left pane.
+        controls = ttk.Frame(right)
+        controls.pack(fill="x", pady=(0, 8))
+        self.enumerate_all_button = ttk.Button(controls, text="ENUMERATE ALL COMBINATIONS",
+                    command=self.enumerate)
+        self.enumerate_all_button.pack(side="left", padx=(0, 6))
+        self.enumerate_current_button = ttk.Button(controls, text="Enumerate Current",
+                    command=self.enumerate_current)
+        self.enumerate_current_button.pack(side="left", padx=(0, 10))
+        ttk.Label(controls, text="Max:").pack(side="left")
+        ttk.Entry(controls, textvariable=self.limit, width=7).pack(side="left", padx=(4, 0))
+        ttk.Label(controls, text="Select fragments, Add R-group, then enumerate.",
+                  foreground="#365a7b").pack(side="right")
         resulthead = ttk.Frame(right)
         resulthead.pack(fill="x", pady=(0, 5))
         ttk.Label(resulthead, text="Enumerated molecules", font=("Segoe UI", 10, "bold")).pack(side="left")
@@ -176,9 +183,18 @@ class Studio(tk.Tk):
         self.selected = None
         self.table.delete(*self.table.get_children())
         self.results_count.configure(text="0 compounds")
-        self.preview_image.configure(image="")
-        self.preview_image.image = None
-        self.properties.configure(text="Enumerate a library to inspect molecules.")
+        # Show the loaded scaffold immediately instead of an empty preview.
+        if hasattr(self, "mol"):
+            image = ImageTk.PhotoImage(Draw.MolToImage(self.mol, size=(360, 245)))
+            self.preview_image.configure(image=image)
+            self.preview_image.image = image
+            props = molecular_properties(self.mol)
+            self.properties.configure(text="PARENT SCAFFOLD\n\n" +
+                "\n".join(f"{k:>7}: {v}" for k, v in props.items()))
+        else:
+            self.preview_image.configure(image="")
+            self.preview_image.image = None
+            self.properties.configure(text="Load a scaffold to begin.")
 
     def refresh_scaffold(self):
         try:
