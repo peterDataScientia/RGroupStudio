@@ -51,6 +51,26 @@ jobs:
         run: |
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" packaging/RGroupStudio.iss
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup build failed" }
+      - name: Validate actual Windows installer installation
+        shell: pwsh
+        run: |
+          $installer = "release/RGroupStudio_Setup_v0.2.2_Windows_x64.exe"
+          if (!(Test-Path $installer)) { throw "Installer not generated" }
+          $proc = Start-Process -FilePath (Resolve-Path $installer) -ArgumentList @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CURRENTUSER") -Wait -PassThru
+          if ($proc.ExitCode -ne 0) { throw "Silent install failed: $($proc.ExitCode)" }
+          $install = Join-Path $env:LOCALAPPDATA "Programs/RGroupStudio/RGroupStudio.exe"
+          if (!(Test-Path $install)) { throw "Installed EXE missing at $install" }
+          $check = Start-Process -FilePath $install -ArgumentList "--self-test" -Wait -PassThru
+          if ($check.ExitCode -ne 0) { throw "Installed EXE self-test failed: $($check.ExitCode)" }
+          $p = Start-Process -FilePath $install -PassThru
+          Start-Sleep -Seconds 8
+          $p.Refresh()
+          if ($p.HasExited) { throw "Installed GUI exited unexpectedly: $($p.ExitCode)" }
+          Stop-Process -Id $p.Id -Force
+          $uninstall = Join-Path $env:LOCALAPPDATA "Programs/RGroupStudio/unins000.exe"
+          if (!(Test-Path $uninstall)) { throw "Uninstaller missing" }
+          $unproc = Start-Process -FilePath $uninstall -ArgumentList @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART") -Wait -PassThru
+          if ($unproc.ExitCode -ne 0) { throw "Uninstaller failed: $($unproc.ExitCode)" }
       - name: Bundle portable application
         shell: pwsh
         run: Compress-Archive -Path dist/RGroupStudio/* -DestinationPath release/RGroupStudio_Portable_Windows_x64.zip -Force
@@ -59,20 +79,20 @@ jobs:
           name: RGroupStudio-Windows
           path: release/*
           if-no-files-found: error
-      - name: Publish official GitHub Release v0.2.1
+      - name: Publish official GitHub Release v0.2.2
         if: github.ref == 'refs/heads/main'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tag = "v0.2.1"
-          $installer = "release/RGroupStudio_Setup_v0.2.1_Windows_x64.exe"
+          $tag = "v0.2.2"
+          $installer = "release/RGroupStudio_Setup_v0.2.2_Windows_x64.exe"
           $portable = "release/RGroupStudio_Portable_Windows_x64.zip"
           if (!(Test-Path $installer)) { throw "Installer missing: $installer" }
           if (!(Test-Path $portable)) { throw "Portable package missing: $portable" }
           gh release view $tag --repo ${{ github.repository }} *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag $installer $portable --repo ${{ github.repository }} --target $env:GITHUB_SHA --title "RGroupStudio v0.2.1 — Windows Official Release" --notes "Windows x64 desktop R-group enumeration application. Download the Setup EXE for one-time installation; Python is not required. Includes a portable ZIP. Build validated with chemistry tests, bundled EXE self-test, and GUI startup check." --latest
+            gh release create $tag $installer $portable --repo ${{ github.repository }} --target $env:GITHUB_SHA --title "RGroupStudio v0.2.2 — Windows Official Release" --notes "Windows x64 desktop R-group enumeration application. Download the Setup EXE for one-time installation; Python is not required. Includes a portable ZIP. Build validated with chemistry tests, bundled EXE self-test, and GUI startup check." --latest
           } else {
             gh release upload $tag $installer $portable --repo ${{ github.repository }} --clobber
           }
