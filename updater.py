@@ -25,7 +25,7 @@ class UpdateError(Exception):
 
 def version_parts(value):
     version = str(value).strip().lstrip("vV")
-    if not re.fullmatch(r"\\d+\\.\\d+\\.\\d+", version):
+    if not re.fullmatch(r"[0-9]+[.][0-9]+[.][0-9]+", version):
         raise UpdateError("Unsupported version: " + str(value))
     return tuple(int(x) for x in version.split("."))
 
