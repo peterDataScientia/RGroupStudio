@@ -23,6 +23,34 @@ class GUIIntegrationTests(unittest.TestCase):
         self.gui.refresh_scaffold()
         self.gui.update()
 
+    def test_v030_atom_click_and_complete_preview(self):
+        from types import SimpleNamespace
+        gui = self.gui
+        gui.geometry("1100x690")
+        gui.update()
+        self.assertTrue(gui.export_bar.winfo_viewable())
+        self.assertGreater(gui.export_bar.winfo_width(), 150)
+        self.assertTrue(gui.preview_image.winfo_viewable())
+        self.assertGreater(gui.preview_image.winfo_height(), 90)
+        point = next((p for p in gui._scaffold_hit_points.values() if p[2] == 2), None)
+        self.assertIsNotNone(point)
+        gui.select_scaffold_atom(SimpleNamespace(x=round(point[0]), y=round(point[1])))
+        self.assertEqual(gui.site_choice.get(), "2")
+        self.assertIn(2, gui.r_sites)
+        self.assertGreaterEqual(gui.assignment_list.size(), 1)
+        gui.fragment_list.selection_clear(0, "end")
+        gui.fragment_list.selection_set(0)
+        gui.assign()
+        gui.enumerate()
+        gui.update()
+        self.assertGreater(len(gui.records), 0)
+        self.assertIsNotNone(gui.preview_image.image)
+        self.assertLessEqual(gui.preview_image.image.width(), gui.preview_image.winfo_width())
+        self.assertLessEqual(gui.preview_image.image.height(), gui.preview_image.winfo_height())
+        self.assertTrue(gui.export_bar.winfo_viewable())
+        gui.geometry("1380x820")
+        gui.update()
+
     def test_updater_controls_and_manual_check(self):
         from unittest.mock import patch
         gui = self.gui
