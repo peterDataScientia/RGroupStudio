@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>RGroupStudio 3D</title>
+  <style>
+    html,body {margin:0;width:100%;height:100%;overflow:hidden;background:#f8fbff;font-family:Segoe UI,Arial,sans-serif}
+    #viewport {position:absolute;inset:0}
+    #message {position:absolute;top:14px;left:14px;right:14px;z-index:2;color:#314c69;font-size:13px;
+              pointer-events:none;white-space:pre-line}
+    #legend {position:absolute;bottom:8px;left:10px;color:#426079;font-size:11px;
+             background:rgba(248,251,255,.91);padding:5px 9px;border-radius:6px;pointer-events:none}
+  </style>
+  <script src="3Dmol-min.js"></script>
+</head>
+<body>
+  <div id="viewport"></div>
+  <div id="message">Choose a molecule to display the 3D structure.</div>
+  <div id="legend">Drag rotate · Wheel zoom · Right-drag translate</div>
+  <script>
+  (function () {
+    "use strict";
+    let viewer = null;
+    let activeModel = null;
+    let displayMode = "ballstick";
+    let atomLabels = false;
+    let lastSdf = "";
+    const msg = document.getElementById("message");
+    const target = document.getElementById("viewport");
+
+    function ensureViewer() {
+      if (viewer) return viewer;
+      if (typeof window.$3Dmol === "undefined") {
+        msg.textContent = "Molecular 3D library not loaded. Please reinstall RGroupStudio.";
+        return null;
+      }
+      try {
+        viewer = $3Dmol.createViewer(target, {backgroundColor: "#f8fbff", antialias:true});
+        viewer.setBackgroundColor(0xf8fbff);
+        viewer.resize();
+        return viewer;
+      } catch(e) {
+        msg.textContent = "WebGL initialization failed: " + String(e);
+        return null;
+      }
+    }
+
+    function applyStyle() {
+      if (!viewer || !activeModel) return;
+      viewer.removeAllLabels();
+      activeModel.setStyle({}, {});
+      if (displayMode === "stick") {
+        activeModel.setStyle({}, {stick:{radius:.19,colorscheme:"Jmol"}});
+      } else if (displayMode === "sphere") {
+        activeModel.setStyle({}, {sphere:{scale:.68,colorscheme:"Jmol"}});
+      } else {
+        activeModel.setStyle({}, {stick:{radius:.16,colorscheme:"Jmol"},
+                                   sphere:{scale:.29,colorscheme:"Jmol"}});
+      }
+      if (atomLabels) {
+        const atoms = activeModel.selectedAtoms({hetflag:true});
+        for (const a of atoms) {
+          if (a.elem && a.elem !== "H" && a.elem !== "C") {
+            viewer.addLabel(a.elem + String(a.serial || a.index || ""),
+              {position:{x:a.x,y:a.y,z:a.z},fontColor:"#162c45",
+               backgroundColor:"#ffffff",backgroundOpacity:.80,fontSize:12,
+               showBackground:true,inFront:true});
+          }
+        }
+      }
+      viewer.render();
+    }
+
+    window.loadMolecule = function (sdf, name) {
+      const v = ensureViewer();
+      if (!v) return false;
+      if (typeof sdf !== "string" || !sdf.includes("M  END")) {
+        msg.textContent = "Invalid SDF molecule.";
+        return false;
+      }
+      try {
+        v.removeAllModels();
+        v.removeAllLabels();
+        activeModel = v.addModel(sdf, "sdf");
+        if (!activeModel) throw new Error("SDF parser returned no model");
+        lastSdf = sdf;
+        applyStyle();
+        v.zoomTo();
+        v.render();
+        msg.textContent = String(name || "");
+        return true;
+      } catch (e) {
+        msg.textContent = "3D rendering failed: " + String(e);
+        return false;
+      }
+    };
+    window.setDisplayStyle = function (mode) {
+      displayMode = ["ballstick","stick","sphere"].includes(mode) ? mode : "ballstick";
+      applyStyle();
+    };
+    window.setAtomLabels = function (on) { atomLabels = Boolean(on); applyStyle(); };
+    window.fitMolecule = function () {
+      if (viewer && activeModel) { viewer.zoomTo();viewer.render(); }
+    };
+    window.resetMoleculeView = function () {
+      if (viewer && lastSdf) { viewer.zoomTo();viewer.render(); }
+    };
+    window.viewerHealth = function () {
+      return {library:typeof window.$3Dmol !== "undefined",viewer:!!viewer,
+              model:!!activeModel,webgl:!!(viewer && viewer.renderer),
+              loadedSdfBytes:lastSdf.length};
+    };
+    window.addEventListener("resize",()=>{if(viewer){viewer.resize();viewer.render();}});
+    window.addEventListener("load",ensureViewer);
+    ensureViewer();
+  })();
+  </script>
+</body>
+</html>
