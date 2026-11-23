@@ -282,6 +282,7 @@ class Studio(tk.Tk):
         self.preview_image=tk.Canvas(preview, bg="#FFFFFF", highlightthickness=0,
                                      borderwidth=0, height=190)
         self.preview_image.pack(side="top", fill="both", expand=True)
+        self.preview_image.image = None
         self.preview_image.bind("<Configure>", self.on_preview_resize)
         tk.Label(self, textvariable=self.status, bg="#e2eaf4", fg="#10243B",
                  anchor="w", padx=9, pady=3, font=("Segoe UI", 9)).pack(fill="x")
