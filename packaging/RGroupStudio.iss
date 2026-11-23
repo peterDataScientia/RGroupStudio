@@ -1,5 +1,5 @@
 #define AppName "RGroupStudio"
-#define AppVersion "0.3.0"
+#define AppVersion "0.3.1"
 [Setup]
 AppId={{70F2B1E1-63A9-41A0-A6BE-4D77824479E7}
 AppName={#AppName}
