@@ -77,7 +77,7 @@ jobs:
       - name: Validate actual Windows installer installation
         shell: pwsh
         run: |
-          $installer = "release/RGroupStudio_Setup_v0.3.1_Windows_x64.exe"
+          $installer = "release/RGroupStudio_Setup_v0.3.2_Windows_x64.exe"
           if (!(Test-Path $installer)) { throw "Installer not generated" }
           $proc = Start-Process -FilePath (Resolve-Path $installer) -ArgumentList @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CURRENTUSER") -Wait -PassThru
           if ($proc.ExitCode -ne 0) { throw "Silent install failed: $($proc.ExitCode)" }
@@ -97,11 +97,11 @@ jobs:
       - name: Publish installer SHA-256 manifest
         shell: pwsh
         run: |
-          $name = "RGroupStudio_Setup_v0.3.1_Windows_x64.exe"
+          $name = "RGroupStudio_Setup_v0.3.2_Windows_x64.exe"
           $path = Join-Path "release" $name
           $hash = (Get-FileHash -Path $path -Algorithm SHA256).Hash.ToLowerInvariant()
           [System.IO.File]::WriteAllText("$path.sha256", "$hash  $name" + [Environment]::NewLine)
-          if ((Get-Content "$path.sha256" -Raw) -notmatch "^[0-9a-f]{64}  RGroupStudio_Setup_v0.3.1_Windows_x64.exe") { throw "Checksum manifest generation failed" }
+          if ((Get-Content "$path.sha256" -Raw) -notmatch "^[0-9a-f]{64}  RGroupStudio_Setup_v0.3.2_Windows_x64.exe") { throw "Checksum manifest generation failed" }
       - name: Bundle portable application
         shell: pwsh
         run: Compress-Archive -Path dist/RGroupStudio/* -DestinationPath release/RGroupStudio_Portable_Windows_x64.zip -Force
@@ -110,14 +110,14 @@ jobs:
           name: RGroupStudio-Windows
           path: release/*
           if-no-files-found: error
-      - name: Publish official GitHub Release v0.3.1
+      - name: Publish official GitHub Release v0.3.2
         if: github.ref == 'refs/heads/main'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tag = "v0.3.1"
-          $installer = "release/RGroupStudio_Setup_v0.3.1_Windows_x64.exe"
+          $tag = "v0.3.2"
+          $installer = "release/RGroupStudio_Setup_v0.3.2_Windows_x64.exe"
           $portable = "release/RGroupStudio_Portable_Windows_x64.zip"
           $checksum = "$installer.sha256"
           $logo = "assets/approved_logo.png"
@@ -126,7 +126,7 @@ jobs:
           if (!(Test-Path $checksum)) { throw "Checksum missing: $checksum" }
           gh release view $tag --repo ${{ github.repository }} *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag $installer $portable $checksum $logo --repo ${{ github.repository }} --target $env:GITHUB_SHA --title "RGroupStudio v0.3.1 — Windows Official Release" --notes "Windows x64 desktop R-group enumeration application. Download the Setup EXE for one-time installation; Python is not required. Includes a portable ZIP. Includes Check for Updates, auto-check at startup, and SHA-256 verified installer updates. Build validated with chemistry, GUI, updater tests and Windows installer install/launch/uninstall." --latest
+            gh release create $tag $installer $portable $checksum $logo --repo ${{ github.repository }} --target $env:GITHUB_SHA --title "RGroupStudio v0.3.2 — Windows Official Release" --notes "Windows x64 desktop R-group enumeration application. Download the Setup EXE for one-time installation; Python is not required. Includes a portable ZIP. Includes Check for Updates, auto-check at startup, and SHA-256 verified installer updates. Build validated with chemistry, GUI, updater tests and Windows installer install/launch/uninstall." --latest
           } else {
             gh release upload $tag $installer $portable $checksum $logo --repo ${{ github.repository }} --clobber
           }
