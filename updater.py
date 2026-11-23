@@ -12,7 +12,7 @@ import tempfile
 import urllib.request
 from urllib.parse import urlparse
 
-APP_VERSION = "0.2.7"
+APP_VERSION = "0.3.0"
 OWNER = "peterDataScientia"
 REPO = "RGroupStudio"
 API_URL = f"https://api.github.com/repos/{OWNER}/{REPO}/releases/latest"
