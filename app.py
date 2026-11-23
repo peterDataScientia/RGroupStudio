@@ -3,13 +3,16 @@ import os
 import sys
 import logging
 import traceback
+import io
+import math
 import queue
 import threading
 import subprocess
 from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog, simpledialog
-from PIL import ImageTk
+from PIL import ImageTk, Image
+from rdkit.Chem.Draw import rdMolDraw2D
 from updater import APP_VERSION, latest_update, download_installer, get_auto_check, set_auto_check
 from rdkit import Chem
 from rdkit.Chem import Draw
@@ -38,6 +41,11 @@ class Studio(tk.Tk):
         self.site_choice = tk.StringVar()
         self.fragments = dict(FRAGMENTS)
         self.assigned = {}
+        self.r_sites = set()
+        self._scaffold_hit_points = {}
+        self._preview_mol = None
+        self._preview_render_size = None
+        self._preview_refresh_id = None
         self.records = []
         self.selected = None
         self.images = []
@@ -108,8 +116,8 @@ class Studio(tk.Tk):
         style.map("Treeview.Heading", background=[("active", "#AFC9E4")])
         style.configure("Vertical.TScrollbar", background="#A3BED8", troughcolor="#E5ECF4",
                         arrowcolor="#143C5F", bordercolor="#7A99B6")
-        self.geometry("1280x760")
-        self.minsize(1040, 670)
+        self.geometry("1380x820")
+        self.minsize(1100, 690)
         # Compact toolbar: no oversized branding or unused banner.
         header = tk.Frame(self, bg="#17365d", height=44)
         header.pack(fill="x")
@@ -135,10 +143,10 @@ class Studio(tk.Tk):
         main = ttk.PanedWindow(self, orient=tk.HORIZONTAL)
         main.pack(fill="both", expand=True, padx=9, pady=7)
         # The complete editor (including assignments) is scrollable.
-        left_host = ttk.Frame(main, width=362)
+        left_host = ttk.Frame(main, width=405)
         right = ttk.Frame(main)
-        main.add(left_host, weight=1)
-        main.add(right, weight=3)
+        main.add(left_host, weight=2)
+        main.add(right, weight=4)
         self.editor_canvas = tk.Canvas(left_host, borderwidth=0, highlightthickness=0,
                                        background="#E9EEF5")
         self.editor_scrollbar = ttk.Scrollbar(left_host, orient="vertical",
@@ -171,13 +179,21 @@ class Studio(tk.Tk):
                         command=self.draw_scaffold).pack(side="left")
         ttk.Checkbutton(optionrow, text="Show H", variable=self.show_hydrogens,
                         command=self.draw_scaffold).pack(side="left", padx=12)
-        self.scaffold_display = ttk.Label(a, anchor="center")
+        self.scaffold_display = tk.Canvas(a, bg="white", height=185,
+                                          highlightthickness=1, highlightbackground="#A8BBCF",
+                                          cursor="crosshair")
         self.scaffold_display.pack(fill="x", pady=(0, 1))
+        self.scaffold_display.bind("<Button-1>", self.select_scaffold_atom)
+        self.scaffold_display.bind("<Configure>", lambda event: self.draw_scaffold())
+        ttk.Label(a, text="Click a highlighted atom or choose its index below.").pack(anchor="w")
 
         b = ttk.LabelFrame(left, text="2  Attachment site", padding=7)
         b.pack(fill="x", pady=(0, 5))
         self.site_combo = ttk.Combobox(b, state="readonly", textvariable=self.site_choice)
-        self.site_combo.pack(fill="x")
+        self.site_combo.pack(side="left", fill="x", expand=True)
+        self.site_combo.bind("<<ComboboxSelected>>", lambda event: self.draw_scaffold())
+        ttk.Button(b, text="Define R-site", command=self.define_site,
+                   style="Primary.TButton").pack(side="left", padx=(6,0))
 
         c = ttk.LabelFrame(left, text="3  Fragments and assignments", padding=7)
         c.pack(fill="both", expand=True, pady=(0, 5))
@@ -206,7 +222,11 @@ class Studio(tk.Tk):
                                          highlightbackground="#A8BBCF", highlightthickness=1,
                                          relief="solid", bd=1)
         self.assignment_list.pack(side="left", fill="x", expand=True)
+        self.assignment_list.bind("<<ListboxSelect>>", self.show_assignment_details)
         ttk.Button(assignmentrow, text="Remove", command=self.remove_assignment).pack(side="left", padx=(5, 0))
+        self.assignment_details = ttk.Label(c, text="Choose an R-site and assign fragments.",
+                                            wraplength=360, justify="left")
+        self.assignment_details.pack(fill="x", pady=(4, 2))
 
         # Right: a compact results table with room for an actual molecule preview.
         # Primary actions are pinned to the TOP of the right workspace.
@@ -231,33 +251,38 @@ class Studio(tk.Tk):
         results = ttk.Frame(right)
         results.pack(fill="x")
         cols = ("id", "smiles", "mw", "logp", "tpsa", "qed")
-        self.table = ttk.Treeview(results, columns=cols, show="headings", height=9)
+        self.table = ttk.Treeview(results, columns=cols, show="headings", height=7)
         labels = {"id":"ID", "smiles":"Canonical SMILES", "mw":"MW", "logp":"cLogP", "tpsa":"TPSA", "qed":"QED"}
         for col in cols:
             self.table.heading(col, text=labels[col])
-            self.table.column(col, width=90 if col!="smiles" else 300, minwidth=65,
-                              stretch=(col=="smiles"))
+            self.table.column(col, width=98 if col!="smiles" else 260,
+                              minwidth=62, stretch=(col=="smiles"))
         self.table.pack(side="left", fill="x", expand=True)
         scrollbar=ttk.Scrollbar(results, orient="vertical", command=self.table.yview)
         scrollbar.pack(side="right", fill="y")
         self.table.configure(yscrollcommand=scrollbar.set)
         self.table.bind("<<TreeviewSelect>>", self.choose_record)
 
-        preview = ttk.LabelFrame(right, text="Molecular preview and properties", padding=7)
-        preview.pack(fill="both", expand=True, pady=(7, 5))
-        self.preview_image=ttk.Label(preview, anchor="center")
-        self.preview_image.pack(side="left", fill="both", expand=True)
-        self.properties=ttk.Label(preview, text="Load a scaffold and enumerate to view products.\n\nSelect any product to inspect properties.",
-                                  font=("Consolas", 11, "bold"), justify="left")
-        self.properties.pack(side="left", anchor="n", padx=(8, 22), pady=12)
+        # Critical export actions stay in view regardless of preview content size.
         actions = ttk.Frame(right)
-        actions.pack(fill="x", pady=(0, 2))
+        actions.pack(fill="x", pady=(7, 4))
         ttk.Checkbutton(actions, text="Selected only", variable=self.export_selection_only).pack(side="left", padx=(0, 6))
-        ttk.Button(actions, text="CSV", command=lambda:self.export("csv")).pack(side="left", padx=(0, 4))
-        ttk.Button(actions, text="SMILES", command=lambda:self.export("smi")).pack(side="left", padx=4)
-        ttk.Button(actions, text="2D SDF", command=lambda:self.export("2d")).pack(side="left", padx=4)
-        ttk.Button(actions, text="3D SDF", command=lambda:self.export("3d")).pack(side="left", padx=4)
-        ttk.Button(actions, text="View 3D", command=self.view3d).pack(side="left", padx=4)
+        ttk.Button(actions, text="Export CSV", command=lambda:self.export("csv")).pack(side="left", padx=3)
+        ttk.Button(actions, text="SMILES", command=lambda:self.export("smi")).pack(side="left", padx=3)
+        ttk.Button(actions, text="2D SDF", command=lambda:self.export("2d")).pack(side="left", padx=3)
+        ttk.Button(actions, text="3D SDF", command=lambda:self.export("3d")).pack(side="left", padx=3)
+        ttk.Button(actions, text="View 3D", command=self.view3d,
+                   style="Primary.TButton").pack(side="left", padx=3)
+
+        preview = ttk.LabelFrame(right, text="Molecular preview — complete structure", padding=6)
+        preview.pack(fill="both", expand=True, pady=(3, 2))
+        self.properties=ttk.Label(preview, text="Load a scaffold to begin.",
+                                  font=("Consolas", 10, "bold"), justify="left")
+        self.properties.pack(side="bottom", fill="x", anchor="w", padx=8, pady=(2,4))
+        self.preview_image=tk.Canvas(preview, bg="#FFFFFF", highlightthickness=0,
+                                     borderwidth=0, height=190)
+        self.preview_image.pack(side="top", fill="both", expand=True)
+        self.preview_image.bind("<Configure>", self.on_preview_resize)
         tk.Label(self, textvariable=self.status, bg="#e2eaf4", fg="#10243B",
                  anchor="w", padx=9, pady=3, font=("Segoe UI", 9)).pack(fill="x")
 
