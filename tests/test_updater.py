@@ -13,7 +13,7 @@ class _Response(io.BytesIO):
         return "https://objects.githubusercontent.com/validated-installer.exe"
 
 class UpdaterTests(unittest.TestCase):
-    def _release(self, version="0.3.1", size=16):
+    def _release(self, version="0.3.2", size=16):
         name=updater.SETUP_TEMPLATE.format(version=version)
         base=f"https://github.com/{updater.OWNER}/{updater.REPO}/releases/download/v{version}/"
         return {"tag_name":"v"+version,"draft":False,"prerelease":False,
@@ -30,12 +30,12 @@ class UpdaterTests(unittest.TestCase):
         payload=json.dumps(self._release()).encode()
         with patch("updater.read_url",return_value=payload):
             info=updater.latest_update()
-        self.assertEqual(info["version"],"0.3.1")
+        self.assertEqual(info["version"],"0.3.2")
         self.assertTrue(info["url"].endswith(info["filename"]))
         self.assertTrue(info["checksum_url"].endswith(".sha256"))
 
     def test_current_version_has_no_update(self):
-        payload=json.dumps(self._release("0.2.7")).encode()
+        payload=json.dumps(self._release("0.3.1")).encode()
         with patch("updater.read_url",return_value=payload):
             self.assertIsNone(updater.latest_update())
 
