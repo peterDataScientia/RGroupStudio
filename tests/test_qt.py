@@ -132,14 +132,16 @@ class QtDesktopTests(unittest.TestCase):
         self.assertEqual(result,[True],"3Dmol JS failed to load RDKit SDF")
         health=[]
         gui.browser.page().runJavaScript(
-            "window.viewerHealth()",lambda value:health.append(value))
+            "JSON.stringify(window.viewerHealth())",lambda value:health.append(value))
         for _ in range(160):
             self.application.processEvents()
             if health:break
             time.sleep(.05)
-        self.assertTrue(health and health[0]["library"])
-        self.assertTrue(health[0]["model"])
-        self.assertGreater(health[0]["loadedSdfBytes"],100)
+        self.assertTrue(health)
+        parsed=json.loads(health[0])
+        self.assertTrue(parsed["library"])
+        self.assertTrue(parsed["model"])
+        self.assertGreater(parsed["loadedSdfBytes"],100)
         gui.tabs.setCurrentIndex(0)
 
     def test_local_html_3dmol_contract(self):
