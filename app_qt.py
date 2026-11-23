@@ -505,11 +505,8 @@ class Studio(QMainWindow):
         self.clear_results()
 
     def _start(self,job,on_done,message):
-        if any(w.isRunning() for w in self.workers):
-            self.status.setText("Operation already in progress")
-            return
         worker=Worker(job,self)
-        self.workers=[worker]
+        self.workers.append(worker)
         self.enumerate_btn.setEnabled(False)
         self.current_btn.setEnabled(False)
         self.status.setText(message)
@@ -525,7 +522,7 @@ class Studio(QMainWindow):
         worker.completed.connect(done)
         worker.failed.connect(failed)
         worker.finished.connect(worker.deleteLater)
-        worker.finished.connect(lambda:self.workers.clear())
+        worker.finished.connect(lambda w=worker:self.workers.remove(w) if w in self.workers else None)
         worker.start()
 
     def enumerate_all(self):
@@ -547,6 +544,9 @@ class Studio(QMainWindow):
         self.table.blockSignals(False)
         self.count_label.setText("0 compounds")
         self._active_mol3d=None
+        self._pending_sdf=None
+        if self._web_ready:
+            self._js("if(window.viewerHealth){window.loadMolecule('', '');}")
         if self.scaffold_mol is not None:
             self.render_2d(self.scaffold_mol,"PARENT SCAFFOLD")
         else:
@@ -570,8 +570,9 @@ class Studio(QMainWindow):
         self.status.setText("Enumerated "+str(len(records))+" unique molecules")
 
     def render_2d(self,mol,name):
-        rdDepictor.Compute2DCoords(mol)
-        pic=pixmap_from_pil(Draw.MolToImage(mol,size=(750,440)))
+        displayed=Chem.Mol(mol)
+        rdDepictor.Compute2DCoords(displayed)
+        pic=pixmap_from_pil(Draw.MolToImage(displayed,size=(750,440)))
         bounds=self.preview2d.size()
         self.preview2d.setPixmap(pic.scaled(max(250,bounds.width()-15),
                                             max(175,bounds.height()-10),
