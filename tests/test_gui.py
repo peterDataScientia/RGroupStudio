@@ -205,9 +205,21 @@ class GUIIntegrationTests(unittest.TestCase):
             self.assertFalse(errors.called, str(errors.call_args))
         self.assertEqual(gui.preview_tabs.select(), str(gui.preview_3d_tab))
         self.assertIsNotNone(gui._three_d_canvas)
-        self.assertIsNotNone(gui._three_d_axes)
+        self.assertTrue(gui._three_d_canvas.winfo_viewable())
+        self.assertIsNotNone(gui._three_d_canvas.image)
         self.assertIsNotNone(gui._three_d_structure)
         self.assertEqual(gui._three_d_selected,gui.selected)
+        initial_yaw = gui._three_d_yaw
+        from types import SimpleNamespace
+        gui._start_3d_rotation(SimpleNamespace(x=140,y=135))
+        gui._rotate_3d(SimpleNamespace(x=185,y=153))
+        gui._draw_3d()
+        self.assertNotEqual(gui._three_d_yaw, initial_yaw)
+        previous_zoom = gui._three_d_zoom
+        gui._zoom_3d(SimpleNamespace(delta=120,num=None))
+        gui._draw_3d()
+        self.assertGreater(gui._three_d_zoom, previous_zoom)
+        self.assertIsNotNone(gui._three_d_canvas.image)
         self.assertFalse([w for w in gui.winfo_children()
                           if w not in existing and w.winfo_class()=="Toplevel"])
         gui.reset_3d_view()
