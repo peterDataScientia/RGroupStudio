@@ -265,6 +265,7 @@ class Studio(tk.Tk):
 
         # Critical export actions stay in view regardless of preview content size.
         actions = ttk.Frame(right)
+        self.export_bar = actions
         actions.pack(fill="x", pady=(7, 4))
         ttk.Checkbutton(actions, text="Selected only", variable=self.export_selection_only).pack(side="left", padx=(0, 6))
         ttk.Button(actions, text="Export CSV", command=lambda:self.export("csv")).pack(side="left", padx=3)
