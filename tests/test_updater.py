@@ -35,7 +35,7 @@ class UpdaterTests(unittest.TestCase):
         self.assertTrue(info["checksum_url"].endswith(".sha256"))
 
     def test_current_version_has_no_update(self):
-        payload=json.dumps(self._release("0.4.0")).encode()
+        payload=json.dumps(self._release(updater.APP_VERSION)).encode()
         with patch("updater.read_url",return_value=payload):
             self.assertIsNone(updater.latest_update())
 
