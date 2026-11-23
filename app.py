@@ -416,21 +416,49 @@ class Studio(tk.Tk):
         logging.exception("%s: %s", title, exc)
         messagebox.showerror(title, str(exc) + "\n\nLog: " + str(LOGFILE))
 
+    def on_preview_resize(self, event=None):
+        # Coalesce resize redraw events to avoid changing label geometry recursively.
+        if self._preview_refresh_id is not None:
+            self.after_cancel(self._preview_refresh_id)
+        self._preview_refresh_id = self.after(75, self.render_preview)
+
+    def render_preview(self):
+        self._preview_refresh_id = None
+        mol = self._preview_mol
+        if mol is None or not self.preview_image.winfo_exists():
+            return
+        width = max(120, self.preview_image.winfo_width() - 16)
+        height = max(105, self.preview_image.winfo_height() - 12)
+        size = (width, height)
+        if size != self._preview_render_size or self.preview_image.image is None:
+            image = Draw.MolToImage(mol, size=size)
+            self.preview_image.image = ImageTk.PhotoImage(image)
+            self._preview_render_size = size
+        self.preview_image.delete("all")
+        self.preview_image.create_image(
+            self.preview_image.winfo_width()//2,
+            self.preview_image.winfo_height()//2,
+            image=self.preview_image.image, anchor="center")
+
+    def show_preview(self, mol, name):
+        self._preview_mol = Chem.Mol(mol)
+        self._preview_render_size = None
+        props = molecular_properties(mol)
+        first = "   ".join(f"{k}: {v}" for k,v in props.items() if k in ("MW", "cLogP", "TPSA", "QED"))
+        second = "   ".join(f"{k}: {v}" for k,v in props.items() if k in ("HBD", "HBA", "RotB"))
+        self.properties.configure(text=f"{name}  |  {first}\n{second}")
+        self.render_preview()
+
     def reset_results(self):
         self.records = []
         self.selected = None
         self.table.delete(*self.table.get_children())
         self.results_count.configure(text="0 compounds")
-        # Show the loaded scaffold immediately instead of an empty preview.
         if hasattr(self, "mol"):
-            image = ImageTk.PhotoImage(Draw.MolToImage(self.mol, size=(360, 245)))
-            self.preview_image.configure(image=image)
-            self.preview_image.image = image
-            props = molecular_properties(self.mol)
-            self.properties.configure(text="PARENT SCAFFOLD\n\n" +
-                "\n".join(f"{k:>7}: {v}" for k, v in props.items()))
+            self.show_preview(self.mol, "PARENT SCAFFOLD")
         else:
-            self.preview_image.configure(image="")
+            self._preview_mol = None
+            self.preview_image.delete("all")
             self.preview_image.image = None
             self.properties.configure(text="Load a scaffold to begin.")
 
@@ -440,9 +468,10 @@ class Studio(tk.Tk):
             self.mol = candidate
             self.loaded_scaffold = self.scaffold.get()
             allowed = sites(self.mol)
-            self.site_combo["values"]=[str(i) for i in allowed]
+            self.site_combo["values"] = [str(i) for i in allowed]
             self.site_choice.set(str(allowed[0]) if allowed else "")
             self.assigned.clear()
+            self.r_sites.clear()
             self.current_fragments.clear()
             self.refresh_assignments()
             self.reset_results()
@@ -452,16 +481,63 @@ class Studio(tk.Tk):
             self.error("Scaffold error", exc)
 
     def draw_scaffold(self):
-        if not hasattr(self, "mol"):
+        if not hasattr(self, "mol") or not self.scaffold_display.winfo_exists():
             return
+        # RDKit draw coordinates drive the actual click hit-test; don't approximate
+        # atom positions from a separate 2D depiction.
         m = Chem.AddHs(self.mol) if self.show_hydrogens.get() else Chem.Mol(self.mol)
         if self.show_indices.get():
             for atom in m.GetAtoms():
                 atom.SetProp("atomNote", str(atom.GetIdx()))
-        img = Draw.MolToImage(m, size=(310, 145))
+        width = max(230, self.scaffold_display.winfo_width()-12)
+        height = max(175, self.scaffold_display.winfo_height()-8)
+        drawer = rdMolDraw2D.MolDraw2DCairo(width, height)
+        selected = int(self.site_choice.get()) if self.site_choice.get().isdigit() else -1
+        highlight = list(self.r_sites)
+        if selected >= 0 and selected < m.GetNumAtoms() and selected not in highlight:
+            highlight.append(selected)
+        colors = {i: ((0.08,0.66,0.56) if i in self.r_sites else (0.9,0.62,0.15))
+                  for i in highlight}
+        drawer.DrawMolecule(m, highlightAtoms=highlight, highlightAtomColors=colors)
+        drawer.FinishDrawing()
+        img = Image.open(io.BytesIO(drawer.GetDrawingText())).convert("RGB")
         photo = ImageTk.PhotoImage(img)
-        self.scaffold_display.configure(image=photo)
+        self.scaffold_display.delete("all")
+        self.scaffold_display.create_image(0, 0, anchor="nw", image=photo)
         self.scaffold_display.image = photo
+        self._scaffold_hit_points = {}
+        for atom in m.GetAtoms():
+            i = atom.GetIdx()
+            point = drawer.GetDrawCoords(i)
+            parent = i
+            if atom.GetSymbol() == "H" and atom.GetDegree() == 1:
+                parent = atom.GetNeighbors()[0].GetIdx()
+            if parent in sites(self.mol):
+                self._scaffold_hit_points[i] = (float(point.x), float(point.y), parent)
+
+    def select_scaffold_atom(self, event):
+        """Select a chemically substitutable atom by clicking the actual depiction."""
+        if not self._scaffold_hit_points:
+            return
+        i, (x, y, parent) = min(
+            self._scaffold_hit_points.items(),
+            key=lambda entry: (entry[1][0]-event.x)**2+(entry[1][1]-event.y)**2)
+        if (x-event.x)**2 + (y-event.y)**2 > 26**2:
+            return
+        self.site_choice.set(str(parent))
+        self.define_site()
+        self.status.set(f"Selected atom {parent}; assign fragments to this R-site.")
+
+    def define_site(self):
+        try:
+            index = int(self.site_choice.get())
+            if index not in sites(self.mol):
+                raise ValueError("Selected atom has no replaceable hydrogen")
+            self.r_sites.add(index)
+            self.refresh_assignments()
+            self.draw_scaffold()
+        except Exception as exc:
+            self.error("Invalid R-group site", exc)
 
     def refresh_fragment_list(self):
         self.fragment_names = list(self.fragments)
@@ -498,9 +574,27 @@ class Studio(tk.Tk):
             self.error("Invalid fragment",exc)
 
     def refresh_assignments(self):
-        self.assignment_list.delete(0,tk.END)
-        for n,(site, items) in enumerate(sorted(self.assigned.items()),1):
-            self.assignment_list.insert(tk.END,"R%d @ atom %d: %s"%(n,site,", ".join(items)))
+        self.assignment_list.delete(0, tk.END)
+        defined = sorted(self.r_sites | set(self.assigned))
+        for n, site in enumerate(defined, 1):
+            items = self.assigned.get(site, [])
+            status = f"{len(items)} fragments" if items else "Awaiting fragments"
+            self.assignment_list.insert(tk.END, f"R{n}   |   Atom {site}   |   {status}")
+        if hasattr(self, "assignment_details"):
+            self.assignment_details.configure(
+                text=f"{len(defined)} defined R-sites. Select a row to inspect assignments.")
+
+    def show_assignment_details(self, event=None):
+        chosen = self.assignment_list.curselection()
+        if not chosen:
+            return
+        defined = sorted(self.r_sites | set(self.assigned))
+        if chosen[0] >= len(defined):
+            return
+        site = defined[chosen[0]]
+        items = self.assigned.get(site, [])
+        self.assignment_details.configure(
+            text=f"Atom {site}: " + (", ".join(items) if items else "No fragments assigned"))
 
     def assign(self):
         try:
@@ -509,6 +603,8 @@ class Studio(tk.Tk):
             if not selected:
                 raise ValueError("Select at least one fragment")
             self.assigned[site]=selected
+            self.r_sites.add(site)
+            self.draw_scaffold()
             self.current_fragments[site]=selected[0]
             self.refresh_assignments()
             self.reset_results()
@@ -517,13 +613,18 @@ class Studio(tk.Tk):
             self.error("Assignment failed",exc)
 
     def remove_assignment(self):
-        selected=self.assignment_list.curselection()
+        selected = self.assignment_list.curselection()
         if not selected:
             return
-        site=sorted(self.assigned)[selected[0]]
-        self.assigned.pop(site)
+        defined = sorted(self.r_sites | set(self.assigned))
+        if selected[0] >= len(defined):
+            return
+        site = defined[selected[0]]
+        self.assigned.pop(site, None)
         self.current_fragments.pop(site, None)
+        self.r_sites.discard(site)
         self.refresh_assignments()
+        self.draw_scaffold()
         self.reset_results()
 
     def enumerate_current(self):
@@ -561,16 +662,12 @@ class Studio(tk.Tk):
             self.error("Enumeration failed",exc)
 
     def choose_record(self,event=None):
-        selected=self.table.selection()
+        selected = self.table.selection()
         if not selected:
             return
-        self.selected=int(selected[0])
-        name,mol=self.records[self.selected]
-        pic=ImageTk.PhotoImage(Draw.MolToImage(mol,size=(360,245)))
-        self.preview_image.configure(image=pic)
-        self.preview_image.image=pic
-        p=molecular_properties(mol)
-        self.properties.configure(text="\n".join([name, ""] + [f"{k:>7}: {v}" for k,v in p.items()]))
+        self.selected = int(selected[0])
+        name, mol = self.records[self.selected]
+        self.show_preview(mol, name)
 
     def export(self,kind):
         if not self.records:
