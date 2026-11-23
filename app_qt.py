@@ -315,7 +315,7 @@ class Studio(QMainWindow):
         self.selected_only=QCheckBox("Selected only")
         exports.addWidget(self.selected_only)
         for label,mode in [("CSV","csv"),("SMILES","smi"),("2D SDF","2d"),("3D SDF","3d")]:
-            exports.addWidget(self._button("Export "+label,lambda m=mode:self.export(m)))
+            exports.addWidget(self._button("Export "+label,lambda checked=False,m=mode:self.export(m)))
         exports.addWidget(self._button("View 3D",lambda:self.tabs.setCurrentIndex(1),True))
         exports.addStretch()
         r.addLayout(exports)
