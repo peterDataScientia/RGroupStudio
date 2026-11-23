@@ -3,6 +3,8 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
+import time
 
 os.environ["RGROUPSTUDIO_DISABLE_AUTO_CHECK"]="1"
 os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS","--enable-unsafe-swiftshader")
@@ -59,6 +61,31 @@ class QtDesktopTests(unittest.TestCase):
         self.assertEqual(gui.count_label.text(),"1 compounds")
         self.assertIn("MW",gui.properties.text())
         self.assertIsNotNone(gui.preview2d.pixmap())
+
+    def test_actual_export_buttons_create_correct_formats(self):
+        gui=self.gui
+        gui.show_records(enumerate_library("c1ccccc1",{0:["[*]F"]}))
+        with tempfile.TemporaryDirectory() as folder:
+            for name,extension in (("Export CSV","csv"),("Export SMILES","smi"),
+                                   ("Export 2D SDF","sdf"),("Export 3D SDF","sdf")):
+                path=Path(folder)/(name.replace(" ","_")+"."+extension)
+                buttons=[b for b in gui.findChildren(__import__(
+                    "PySide6.QtWidgets",fromlist=["QPushButton"]).QPushButton)
+                    if b.text()==name]
+                self.assertEqual(len(buttons),1)
+                with patch("app_qt.QFileDialog.getSaveFileName",
+                           return_value=(str(path),extension)):
+                    buttons[0].click()
+                    for _ in range(120):
+                        self.application.processEvents()
+                        if path.exists() and not any(w.isRunning() for w in gui.workers):
+                            break
+                        time.sleep(.025)
+                self.assertTrue(path.exists(),name+" did not create file")
+                self.assertGreater(path.stat().st_size,10)
+                if extension=="sdf":
+                    mols=[m for m in Chem.SDMolSupplier(str(path)) if m]
+                    self.assertEqual(len(mols),1)
 
     def test_site_remove_and_3d_selection_contract(self):
         gui=self.gui
