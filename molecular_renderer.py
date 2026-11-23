@@ -106,7 +106,7 @@ def render_molecule(mol, width=720, height=450, yaw=35, pitch=22,
         side=np.array([-tangent[1],tangent[0]])
         start=np.array(screen[i])+tangent*radius*.45
         finish=np.array(screen[j])-tangent*radius*.45
-        order=2 if b.GetIsAromatic() else int(b.GetBondTypeAsDouble())
+        order=1 if b.GetIsAromatic() else int(b.GetBondTypeAsDouble())
         n_lines=2 if order==2 else 3 if order>=3 else 1
         offsets=[0] if n_lines==1 else [-radius*.25,radius*.25] if n_lines==2 else [-radius*.35,0,radius*.35]
         depth=float((rotated[i,2]+rotated[j,2])/2)
