@@ -59,7 +59,7 @@
                                    sphere:{scale:.29,colorscheme:"Jmol"}});
       }
       if (atomLabels) {
-        const atoms = activeModel.selectedAtoms({hetflag:true});
+        const atoms = activeModel.selectedAtoms({});
         for (const a of atoms) {
           if (a.elem && a.elem !== "H" && a.elem !== "C") {
             viewer.addLabel(a.elem + String(a.serial || a.index || ""),
