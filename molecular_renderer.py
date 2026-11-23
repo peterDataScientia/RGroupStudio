@@ -28,21 +28,24 @@ def orientation(points, yaw=35, pitch=22):
 def _blend(rgb, toward=(255, 255, 255), amount=0.25):
     return tuple(max(0, min(255, int(round(a*(1-amount)+b*amount)))) for a,b in zip(rgb, toward))
 
-def _sphere(draw, cx, cy, radius, color):
-    """Layered radial shading: a readable sphere without a wireframe 'blob'."""
-    r = max(4, int(radius))
-    # Solid dark rim and a subtle shadow at the lower right.
-    draw.ellipse((cx-r+2, cy-r+3, cx+r+2, cy+r+3), fill=(192, 202, 216))
-    draw.ellipse((cx-r, cy-r, cx+r, cy+r), fill=_blend(color, (12,19,33), .37))
-    for fraction, lightness in ((.88,.05),(.72,.13),(.56,.24),(.40,.31),(.23,.42)):
-        rr=r*fraction
-        dx=-r*.20
-        dy=-r*.24
-        draw.ellipse((cx+dx-rr,cy+dy-rr,cx+dx+rr,cy+dy+rr),
-                     fill=_blend(color, amount=lightness))
-    hh=r*.16
-    draw.ellipse((cx-r*.44-hh,cy-r*.49-hh,cx-r*.44+hh,cy-r*.49+hh),
-                 fill=_blend(color, amount=.69))
+def _sphere(image, cx, cy, radius, color):
+    """Smooth per-pixel Lambertian shaded ball with a directional specular highlight."""
+    r = max(4,int(round(radius)))
+    size = r*2+4
+    yy, xx = np.mgrid[0:size,0:size].astype(float)
+    nx=(xx-(r+1))/r
+    ny=(yy-(r+1))/r
+    dist=nx*nx+ny*ny
+    nz=np.sqrt(np.clip(1.0-dist,0,1))
+    diffuse=np.maximum(0,nx*(-.42)+ny*(-.52)+nz*.74)
+    shade=.35+.69*diffuse
+    shine=np.exp(-((nx+.37)**2+(ny+.42)**2)/.040)*.41
+    base=np.asarray(color,dtype=float)
+    rgb=np.clip(base[None,None,:]*shade[:,:,None]+255*shine[:,:,None],0,255)
+    alpha=np.clip((1-dist)*r*2.6,0,1)*255
+    rgba=np.concatenate((rgb,alpha[:,:,None]),axis=2).astype(np.uint8)
+    sprite=Image.fromarray(rgba,"RGBA")
+    image.paste(sprite,(int(round(cx-r-1)),int(round(cy-r-1))),sprite)
 
 def _bond(draw, p, q, r, color, width):
     """Outlined cylindrical bond with a slender lit highlight."""
@@ -115,7 +118,7 @@ def render_molecule(mol, width=720, height=450, yaw=35, pitch=22,
         if item[0]=="atom":
             i=item[1]
             atom=mol.GetAtomWithIdx(i)
-            _sphere(draw,*screen[i],radius,CPK.get(atom.GetSymbol(),(148,113,182)))
+            _sphere(image,*screen[i],radius,CPK.get(atom.GetSymbol(),(148,113,182)))
         else:
             _,i,j,start,finish,side,offsets=item
             ci=CPK.get(mol.GetAtomWithIdx(i).GetSymbol(),(134,143,161))
