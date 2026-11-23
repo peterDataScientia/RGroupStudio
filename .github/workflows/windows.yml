@@ -20,6 +20,16 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt pyinstaller
+      - name: Bundle pinned offline 3Dmol.js
+        shell: pwsh
+        run: |
+          npm install --prefix .3dmol_npm --ignore-scripts --no-audit --no-fund --no-save 3dmol@2.5.5
+          $from = ".3dmol_npm/node_modules/3dmol/build/3Dmol-min.js"
+          if (!(Test-Path $from)) { throw "Pinned 3Dmol.js browser bundle unavailable" }
+          Copy-Item $from viewer/3Dmol-min.js
+          if ((Get-Item viewer/3Dmol-min.js).Length -lt 100000) { throw "3Dmol bundle suspiciously small" }
+          $license = ".3dmol_npm/node_modules/3dmol/LICENSE"
+          if (Test-Path $license) { Copy-Item $license viewer/3DMOL-LICENSE.txt }
       - name: Prepare approved RGroupStudio icons
         shell: pwsh
         run: |
@@ -47,8 +57,15 @@ jobs:
       - name: Build desktop EXE
         shell: pwsh
         run: |
-          python -m PyInstaller --noconfirm --clean --onedir --windowed --name RGroupStudio --icon assets/RGroupStudio.ico --add-data "assets/approved_logo.png;assets" --collect-all rdkit --collect-all matplotlib --collect-all PIL --hidden-import PIL._tkinter_finder app.py
+          python -m PyInstaller --noconfirm --clean --onedir --windowed --name RGroupStudio --icon assets/RGroupStudio.ico --add-data "assets/approved_logo.png;assets" --add-data "viewer;viewer" --collect-all rdkit --collect-all PIL --collect-all PySide6.QtWebEngineWidgets --collect-all PySide6.QtWebEngineCore --hidden-import PySide6.QtWebEngineWidgets --hidden-import PySide6.QtWebEngineCore app_qt.py
           if (!(Test-Path dist/RGroupStudio/RGroupStudio.exe)) { throw "Missing EXE" }
+      - name: Validate bundled offline 3D assets
+        shell: pwsh
+        run: |
+          $root = "dist/RGroupStudio/_internal/viewer"
+          if (!(Test-Path "$root/index.html")) { throw "3Dmol viewer page missing" }
+          if (!(Test-Path "$root/3Dmol-min.js")) { throw "Offline 3Dmol JS missing" }
+          if ((Get-Item "$root/3Dmol-min.js").Length -lt 100000) { throw "3Dmol JS truncated" }
       - name: Validate bundled icon asset
         shell: pwsh
         run: |
@@ -77,7 +94,7 @@ jobs:
       - name: Validate actual Windows installer installation
         shell: pwsh
         run: |
-          $installer = "release/RGroupStudio_Setup_v0.3.2_Windows_x64.exe"
+          $installer = "release/RGroupStudio_Setup_v0.4.0_Windows_x64.exe"
           if (!(Test-Path $installer)) { throw "Installer not generated" }
           $proc = Start-Process -FilePath (Resolve-Path $installer) -ArgumentList @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CURRENTUSER") -Wait -PassThru
           if ($proc.ExitCode -ne 0) { throw "Silent install failed: $($proc.ExitCode)" }
@@ -97,11 +114,11 @@ jobs:
       - name: Publish installer SHA-256 manifest
         shell: pwsh
         run: |
-          $name = "RGroupStudio_Setup_v0.3.2_Windows_x64.exe"
+          $name = "RGroupStudio_Setup_v0.4.0_Windows_x64.exe"
           $path = Join-Path "release" $name
           $hash = (Get-FileHash -Path $path -Algorithm SHA256).Hash.ToLowerInvariant()
           [System.IO.File]::WriteAllText("$path.sha256", "$hash  $name" + [Environment]::NewLine)
-          if ((Get-Content "$path.sha256" -Raw) -notmatch "^[0-9a-f]{64}  RGroupStudio_Setup_v0.3.2_Windows_x64.exe") { throw "Checksum manifest generation failed" }
+          if ((Get-Content "$path.sha256" -Raw) -notmatch "^[0-9a-f]{64}  RGroupStudio_Setup_v0.4.0_Windows_x64.exe") { throw "Checksum manifest generation failed" }
       - name: Bundle portable application
         shell: pwsh
         run: Compress-Archive -Path dist/RGroupStudio/* -DestinationPath release/RGroupStudio_Portable_Windows_x64.zip -Force
@@ -110,14 +127,14 @@ jobs:
           name: RGroupStudio-Windows
           path: release/*
           if-no-files-found: error
-      - name: Publish official GitHub Release v0.3.2
+      - name: Publish official GitHub Release v0.4.0
         if: github.ref == 'refs/heads/main'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tag = "v0.3.2"
-          $installer = "release/RGroupStudio_Setup_v0.3.2_Windows_x64.exe"
+          $tag = "v0.4.0"
+          $installer = "release/RGroupStudio_Setup_v0.4.0_Windows_x64.exe"
           $portable = "release/RGroupStudio_Portable_Windows_x64.zip"
           $checksum = "$installer.sha256"
           $logo = "assets/approved_logo.png"
@@ -126,7 +143,7 @@ jobs:
           if (!(Test-Path $checksum)) { throw "Checksum missing: $checksum" }
           gh release view $tag --repo ${{ github.repository }} *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag $installer $portable $checksum $logo --repo ${{ github.repository }} --target $env:GITHUB_SHA --title "RGroupStudio v0.3.2 — Windows Official Release" --notes "Windows x64 desktop R-group enumeration application. Download the Setup EXE for one-time installation; Python is not required. Includes a portable ZIP. Includes Check for Updates, auto-check at startup, and SHA-256 verified installer updates. Build validated with chemistry, GUI, updater tests and Windows installer install/launch/uninstall." --latest
+            gh release create $tag $installer $portable $checksum $logo --repo ${{ github.repository }} --target $env:GITHUB_SHA --title "RGroupStudio v0.4.0 — Windows Official Release" --notes "Windows x64 Qt desktop molecular library designer with offline embedded 3Dmol.js WebGL 3D viewer. RDKit chemistry, scaffold atom editing, enumeration, 2D/3D SDF exports, auto-update checks. No Python or internet required after installation. Automated tests and installer checks included." --latest
           } else {
             gh release upload $tag $installer $portable $checksum $logo --repo ${{ github.repository }} --clobber
           }
