@@ -196,17 +196,23 @@ class GUIIntegrationTests(unittest.TestCase):
             self.assertIn("CustomAmino",gui.fragments)
             self.assertGreaterEqual(gui.fragment_list.size(),2)
             self.assertFalse(gui.records) # prevent stale products
-        # 3D preview opens without an exception and can be destroyed.
-        existing=set(gui.winfo_children())
+        # Embedded 3D tab renders molecule without spawning a second window.
+        existing = set(gui.winfo_children())
         with patch("app.messagebox.showerror") as errors:
             gui.enumerate()
             gui.view3d()
-            gui.update_idletasks()
+            gui.update()
             self.assertFalse(errors.called, str(errors.call_args))
-        new_windows=[w for w in gui.winfo_children() if w not in existing and w.winfo_class()=="Toplevel"]
-        self.assertTrue(new_windows,"View 3D failed to create a window")
-        for w in new_windows:
-            w.destroy()
+        self.assertEqual(gui.preview_tabs.select(), str(gui.preview_3d_tab))
+        self.assertIsNotNone(gui._three_d_canvas)
+        self.assertIsNotNone(gui._three_d_axes)
+        self.assertIsNotNone(gui._three_d_structure)
+        self.assertEqual(gui._three_d_selected,gui.selected)
+        self.assertFalse([w for w in gui.winfo_children()
+                          if w not in existing and w.winfo_class()=="Toplevel"])
+        gui.reset_3d_view()
+        gui.preview_tabs.select(gui.preview_2d_tab)
+        gui.update()
 
     def test_remove_assignment_and_invalid_input(self):
         gui=self.gui
