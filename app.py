@@ -15,6 +15,7 @@ from PIL import ImageTk, Image
 from rdkit.Chem.Draw import rdMolDraw2D
 from updater import APP_VERSION, latest_update, download_installer, get_auto_check, set_auto_check
 from rdkit import Chem
+from molecular_renderer import render_molecule
 from rdkit.Chem import Draw
 from chemistry import FRAGMENTS, parse_scaffold, sites, validate_fragment, load_fragments, enumerate_library, molecular_properties, export_sdf, export_smi, export_csv, conformer_3d
 
@@ -297,10 +298,23 @@ class Studio(tk.Tk):
         ttk.Button(self.three_d_controls, text="Reset View", command=self.reset_3d_view).pack(side="right", padx=4)
         self.three_d_display = ttk.Frame(self.preview_3d_tab)
         self.three_d_display.pack(fill="both", expand=True)
-        self._three_d_canvas = None
-        self._three_d_axes = None
+        self._three_d_canvas = tk.Canvas(self.three_d_display, bg="#FAFCFF",
+                                         highlightthickness=0, height=210)
+        self._three_d_canvas.pack(fill="both", expand=True)
+        self._three_d_canvas.image = None
+        self._three_d_canvas.bind("<Configure>", self._schedule_3d_render)
+        self._three_d_canvas.bind("<ButtonPress-1>", self._start_3d_rotation)
+        self._three_d_canvas.bind("<B1-Motion>", self._rotate_3d)
+        self._three_d_canvas.bind("<MouseWheel>", self._zoom_3d)
+        self._three_d_canvas.bind("<Button-4>", self._zoom_3d)
+        self._three_d_canvas.bind("<Button-5>", self._zoom_3d)
         self._three_d_structure = None
         self._three_d_selected = None
+        self._three_d_yaw = 35.0
+        self._three_d_pitch = 22.0
+        self._three_d_zoom = 1.0
+        self._three_d_mouse_start = None
+        self._three_d_after = None
         self.preview_tabs.bind("<<NotebookTabChanged>>", self._on_preview_tab_change)
         tk.Label(self, textvariable=self.status, bg="#e2eaf4", fg="#10243B",
                  anchor="w", padx=9, pady=3, font=("Segoe UI", 9)).pack(fill="x")
@@ -728,99 +742,90 @@ class Studio(tk.Tk):
         if self.preview_tabs.select() == str(self.preview_3d_tab):
             self.view3d()
 
+    def _schedule_3d_render(self, event=None):
+        if self._three_d_structure is None or not self._three_d_canvas.winfo_exists():
+            return
+        if self._three_d_after is not None:
+            self.after_cancel(self._three_d_after)
+        self._three_d_after = self.after(35, self._draw_3d)
+
+    def _draw_3d(self):
+        self._three_d_after = None
+        if self._three_d_structure is None:
+            return
+        canvas = self._three_d_canvas
+        if not canvas.winfo_exists():
+            return
+        w, h = max(240, canvas.winfo_width()), max(175, canvas.winfo_height())
+        image = render_molecule(self._three_d_structure, width=w, height=h,
+                                yaw=self._three_d_yaw, pitch=self._three_d_pitch,
+                                zoom=self._three_d_zoom)
+        picture = ImageTk.PhotoImage(image)
+        canvas.delete("all")
+        canvas.create_image(canvas.winfo_width()//2, canvas.winfo_height()//2,
+                            image=picture, anchor="center")
+        canvas.image = picture
+
     def reset_3d_view(self):
-        ax = self._three_d_axes
-        if ax is not None:
-            ax.view_init(elev=24, azim=42)
-            if self._three_d_canvas is not None:
-                self._three_d_canvas.draw_idle()
+        self._three_d_yaw = 35.0
+        self._three_d_pitch = 22.0
+        self._three_d_zoom = 1.0
+        self._schedule_3d_render()
+
+    def _start_3d_rotation(self, event):
+        self._three_d_mouse_start = (event.x, event.y)
+
+    def _rotate_3d(self, event):
+        if self._three_d_mouse_start is None:
+            return
+        prev_x, prev_y = self._three_d_mouse_start
+        self._three_d_yaw += (event.x - prev_x)*0.65
+        self._three_d_pitch = max(-88.0, min(88.0,
+                                 self._three_d_pitch + (event.y-prev_y)*0.65))
+        self._three_d_mouse_start = (event.x, event.y)
+        self._schedule_3d_render()
 
     def _zoom_3d(self, event):
-        ax = self._three_d_axes
-        if ax is None or event.inaxes != ax:
+        if self._three_d_structure is None:
             return
-        factor = 0.82 if event.button == "up" else 1.22
-        for getter, setter in ((ax.get_xlim3d, ax.set_xlim3d),
-                               (ax.get_ylim3d, ax.set_ylim3d),
-                               (ax.get_zlim3d, ax.set_zlim3d)):
-            lo, hi = getter()
-            mid = (lo+hi)/2
-            radius = max(0.3, (hi-lo)*factor/2)
-            setter(mid-radius,mid+radius)
-        self._three_d_canvas.draw_idle()
+        delta = getattr(event, "delta", 0)
+        num = getattr(event, "num", None)
+        if delta > 0 or num == 4:
+            factor = 1.15
+        elif delta < 0 or num == 5:
+            factor = 1/1.15
+        else:
+            return
+        self._three_d_zoom = max(.45, min(3.0, self._three_d_zoom*factor))
+        self._schedule_3d_render()
+        return "break"
 
     def view3d(self):
-        """Render a rotatable 3D conformer inside the existing molecular preview."""
+        """Display depth-sorted ball-and-stick model in the embedded 3D tab."""
         if self.selected is None:
             if self.preview_tabs.select() != str(self.preview_3d_tab):
                 messagebox.showinfo("Select molecule", "Select a generated molecule first")
             else:
-                for child in self.three_d_display.winfo_children():
-                    child.destroy()
-                ttk.Label(self.three_d_display,
-                          text="Enumerate molecules and select one to view its 3D structure.",
-                          font=("Segoe UI", 11, "bold")).pack(expand=True)
+                self._three_d_canvas.delete("all")
+                self._three_d_canvas.create_text(
+                    max(160,self._three_d_canvas.winfo_width()//2),
+                    max(65,self._three_d_canvas.winfo_height()//2),
+                    text="Select an enumerated molecule to display its 3D structure.",
+                    fill="#334E69",font=("Segoe UI",11,"bold"))
             return
         try:
-            self.preview_tabs.select(self.preview_3d_tab)
-            if self._three_d_selected == self.selected and self._three_d_canvas is not None:
-                self._three_d_canvas.draw_idle()
-                return
-            from matplotlib.figure import Figure
-            from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-            molecule = conformer_3d(self.records[self.selected][1])
-            xyz = molecule.GetConformer().GetPositions()
-            heavy = [a for a in molecule.GetAtoms() if a.GetAtomicNum() > 1]
-            if not heavy:
-                raise ValueError("No heavy atoms to display")
-            colors={"C":"#37485D","N":"#1757DD","O":"#E43D46",
-                    "F":"#13A86F","Cl":"#19A554","Br":"#964624",
-                    "I":"#6633AC","S":"#D5AD00","P":"#D97706"}
-            fig=Figure(figsize=(5.5,4.0), dpi=100, facecolor="#FFFFFF")
-            ax=fig.add_subplot(111,projection="3d")
-            ax.set_facecolor("#FFFFFF")
-            for bond in molecule.GetBonds():
-                i, j=bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()
-                if molecule.GetAtomWithIdx(i).GetAtomicNum()==1 or molecule.GetAtomWithIdx(j).GetAtomicNum()==1:
-                    continue
-                p,q=xyz[i],xyz[j]
-                middle=(p+q)/2
-                ci=colors.get(molecule.GetAtomWithIdx(i).GetSymbol(),"#607D8B")
-                cj=colors.get(molecule.GetAtomWithIdx(j).GetSymbol(),"#607D8B")
-                ax.plot([p[0],middle[0]],[p[1],middle[1]],[p[2],middle[2]],
-                        color=ci,lw=4.4,solid_capstyle="round")
-                ax.plot([middle[0],q[0]],[middle[1],q[1]],[middle[2],q[2]],
-                        color=cj,lw=4.4,solid_capstyle="round")
-            for atom in heavy:
-                idx=atom.GetIdx()
-                p=xyz[idx]
-                symbol=atom.GetSymbol()
-                ax.scatter([p[0]],[p[1]],[p[2]],s=240 if symbol=="C" else 285,
-                           c=[colors.get(symbol,"#607D8B")],edgecolors="#FFFFFF",
-                           linewidths=0.9,depthshade=True)
-            coords=xyz[[a.GetIdx() for a in heavy]]
-            center=coords.mean(axis=0)
-            radius=max(1.7,max((coords.max(axis=0)-coords.min(axis=0)))/2*1.25)
-            ax.set_xlim3d(center[0]-radius,center[0]+radius)
-            ax.set_ylim3d(center[1]-radius,center[1]+radius)
-            ax.set_zlim3d(center[2]-radius,center[2]+radius)
-            ax.set_box_aspect((1,1,1),zoom=0.9)
-            ax.set_axis_off()
-            ax.view_init(elev=24,azim=42)
-            fig.subplots_adjust(left=0,right=1,bottom=0,top=1)
-            for child in self.three_d_display.winfo_children():
-                child.destroy()
-            canvas=FigureCanvasTkAgg(fig,master=self.three_d_display)
-            canvas.draw()
-            canvas.get_tk_widget().pack(fill="both",expand=True)
-            canvas.mpl_connect("scroll_event",self._zoom_3d)
-            self._three_d_canvas=canvas
-            self._three_d_axes=ax
-            self._three_d_structure=molecule
-            self._three_d_selected=self.selected
-            self.status.set(f"3D conformer for {self.records[self.selected][0]} — drag to rotate; wheel to zoom")
+            if self.preview_tabs.select() != str(self.preview_3d_tab):
+                self.preview_tabs.select(self.preview_3d_tab)
+            if self._three_d_selected != self.selected or self._three_d_structure is None:
+                self._three_d_structure = conformer_3d(self.records[self.selected][1])
+                self._three_d_selected = self.selected
+                self._three_d_yaw = 35.0
+                self._three_d_pitch = 22.0
+                self._three_d_zoom = 1.0
+            self._draw_3d()
+            self.status.set(f"3D molecule {self.records[self.selected][0]} — drag to rotate, wheel to zoom")
         except Exception as exc:
-            self.error("3D visualization failed",exc)
+            self.error("3D visualization failed", exc)
 
 def self_test():
     from chemistry import enumerate_library
