@@ -605,9 +605,9 @@ class Studio(QMainWindow):
         if ok:
             self.status.setText("Offline 3Dmol.js viewer loaded")
             if self._pending_sdf:
-                name,sdf=self._pending_sdf
+                info=self._pending_sdf
                 self._pending_sdf=None
-                self._show_sdf(name,sdf)
+                self._show_sdf(*info)
         else:
             self.status.setText("3D viewer failed to load; check local viewer assets")
 
@@ -615,13 +615,13 @@ class Studio(QMainWindow):
         if self._web_ready:
             self.browser.page().runJavaScript(expression,callback)
 
-    def _show_sdf(self,name,sdf):
+    def _show_sdf(self,name,sdf,optimization=""):
         if not self._web_ready:
-            self._pending_sdf=(name,sdf)
+            self._pending_sdf=(name,sdf,optimization)
             return
         self._js("window.loadMolecule("+json.dumps(sdf)+","+json.dumps(name)+")",
                  lambda ok:self.status.setText(
-                     "3D model loaded: "+name if ok else "3D renderer error; check viewer panel"))
+                     ("3D model loaded: "+name+" | "+optimization) if ok else "3D renderer error; check viewer panel"))
         self.apply_style()
         self.apply_labels()
 
@@ -635,7 +635,7 @@ class Studio(QMainWindow):
         name,mol=self.records[idx]
         def make_sdf():
             conformer=conformer_3d(mol)
-            return (name,Chem.MolToMolBlock(conformer))
+            return (name,Chem.MolToMolBlock(conformer),conformer.GetProp("_RGS_OptimizationStatus"))
         def finished(info):
             if self.selected_index!=idx:return
             self._show_sdf(*info)
