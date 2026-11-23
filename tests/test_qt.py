@@ -108,6 +108,40 @@ class QtDesktopTests(unittest.TestCase):
             self.assertFalse(errors)
             self.assertEqual(len([m for m in Chem.SDMolSupplier(str(path)) if m]),2)
 
+    def test_zz_real_webgl_sdf_loading(self):
+        """Prove JS library parses a real RDKit 3D SDF inside Qt WebEngine."""
+        gui=self.gui
+        gui.tabs.setCurrentIndex(1)
+        for _ in range(160):
+            self.application.processEvents()
+            if gui._web_ready:break
+            time.sleep(.05)
+        self.assertTrue(gui._web_ready,"Offline Qt WebEngine page did not load")
+        from chemistry import conformer_3d
+        mol=conformer_3d(Chem.MolFromSmiles("CC(C)c1ccc(F)cc1"))
+        sdf=Chem.MolToMolBlock(mol)
+        import json
+        result=[]
+        gui.browser.page().runJavaScript(
+            "window.loadMolecule("+json.dumps(sdf)+",'RGS_Test')",
+            lambda value:result.append(value))
+        for _ in range(160):
+            self.application.processEvents()
+            if result:break
+            time.sleep(.05)
+        self.assertEqual(result,[True],"3Dmol JS failed to load RDKit SDF")
+        health=[]
+        gui.browser.page().runJavaScript(
+            "window.viewerHealth()",lambda value:health.append(value))
+        for _ in range(160):
+            self.application.processEvents()
+            if health:break
+            time.sleep(.05)
+        self.assertTrue(health and health[0]["library"])
+        self.assertTrue(health[0]["model"])
+        self.assertGreater(health[0]["loadedSdfBytes"],100)
+        gui.tabs.setCurrentIndex(0)
+
     def test_local_html_3dmol_contract(self):
         html=(resource("viewer")/"index.html").read_text(encoding="utf-8")
         for text in ('src="3Dmol-min.js"',"window.loadMolecule","viewer.zoomTo","window.viewerHealth"):
