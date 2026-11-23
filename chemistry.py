@@ -109,15 +109,35 @@ def molecular_properties(mol):
     }
 
 def conformer_3d(mol, seed=2024):
+    """Embed ETKDGv3 and report force-field optimization outcome explicitly."""
     mol = Chem.AddHs(Chem.Mol(mol))
     params = AllChem.ETKDGv3()
     params.randomSeed = seed
     if AllChem.EmbedMolecule(mol, params) < 0:
         raise ValueError("3D conformer embedding failed")
+    mol.SetProp("_RGS_ConformerMethod", "RDKit ETKDGv3")
+    mol.SetProp("_RGS_ConformerSeed", str(seed))
     try:
-        AllChem.MMFFOptimizeMolecule(mol, maxIters=250)
-    except Exception:
-        pass
+        if AllChem.MMFFHasAllMoleculeParams(mol):
+            outcome = AllChem.MMFFOptimizeMolecule(mol, maxIters=500)
+            method = "MMFF94"
+        elif AllChem.UFFHasAllMoleculeParams(mol):
+            outcome = AllChem.UFFOptimizeMolecule(mol, maxIters=500)
+            method = "UFF"
+        else:
+            method = "none"
+            outcome = None
+        if outcome == 0:
+            status = method + " converged"
+        elif outcome == 1:
+            status = method + " not converged (500 iterations)"
+        elif outcome is None:
+            status = "ETKDGv3 only; no supported force field"
+        else:
+            status = method + " optimization unavailable"
+    except Exception as exc:
+        status = "ETKDGv3 only; force-field error: " + str(exc)[:180]
+    mol.SetProp("_RGS_OptimizationStatus", status)
     return mol
 
 def export_sdf(path, records, three_d=False):
