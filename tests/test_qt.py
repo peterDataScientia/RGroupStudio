@@ -7,7 +7,7 @@ from unittest.mock import patch
 import time
 
 os.environ["RGROUPSTUDIO_DISABLE_AUTO_CHECK"]="1"
-os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS","--enable-unsafe-swiftshader")
+os.environ["QTWEBENGINE_CHROMIUM_FLAGS"]="--use-gl=angle --use-angle=swiftshader-webgl --enable-unsafe-swiftshader --ignore-gpu-blocklist --enable-webgl"
 
 from rdkit import Chem
 from PySide6.QtCore import Qt, QEventLoop, QTimer
